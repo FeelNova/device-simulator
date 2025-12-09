@@ -1,124 +1,279 @@
 'use client';
 
 /**
- * R3F 3D 设备场景组件
+ * R3F 3D 设备场景组件 - 科技感套筒结构
  * 可视化圆柱形设备的节奏运动
  */
 
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Group, TorusGeometry } from 'three';
+import { Mesh, Group, MeshPhysicalMaterial, TorusGeometry } from 'three';
 import { RhythmFrame } from '@/lib/rhythm/mockGenerator';
 
 interface RhythmDeviceSceneProps {
   frame: RhythmFrame | null;
 }
 
-export default function RhythmDeviceScene({ frame }: RhythmDeviceSceneProps) {
-  const innerCoreRef = useRef<Mesh>(null); // 内芯 - 细圆柱体，静态
-  const ringGroupRef = useRef<Group>(null); // 环组 - 包含环和箭头标记
-  const ringMeshRef = useRef<Mesh>(null); // 环的 mesh，用于调整半径
-  const arrowGroupRef = useRef<Group>(null); // 箭头组，用于调整位置
-
-  // 默认值
-  const defaultStroke = 0.5;
-  const defaultRotation = 0;
-  const defaultIntensity = 0.3;
-  const defaultSuck = 0.5; // 默认2档（0.5）
-
-  // 环的半径范围
-  const minRadius = 0.6; // 完全收缩时的最小半径
-  const maxRadius = 0.9; // 完全放松时的最大半径
-  const baseRadius = 0.75; // 基础半径（默认2档时的半径）
-
-  // 创建环的几何体（使用基础半径）
-  const ringGeometry = useMemo(() => {
-    return new TorusGeometry(baseRadius, 0.12, 16, 32);
-  }, []);
+// 内部柱体组件
+function InnerCore({ stroke, intensity }: { stroke: number; intensity: number }) {
+  const coreRef = useRef<Mesh>(null);
+  
+  // 根据 intensity 动态调整发光强度
+  const emissiveIntensity = useMemo(() => 0.3 + intensity * 0.7, [intensity]);
 
   useFrame(() => {
-    const stroke = frame?.stroke ?? defaultStroke;
-    const rotation = frame?.rotation ?? defaultRotation;
-    const suck = frame?.suck ?? defaultSuck;
-
-    // 更新环的位置（上下移动）和旋转（绕 Y 轴旋转）
-    if (ringGroupRef.current) {
-      // 伸缩：根据 stroke 值上下移动
-      // stroke 0 时在底部，stroke 1 时在顶部
-      const minY = -1.2; // 最低位置
-      const maxY = 1.2;  // 最高位置
-      ringGroupRef.current.position.y = minY + stroke * (maxY - minY);
-      
-      // 旋转：环在 XZ 平面（水平），绕 Y 轴旋转（垂直轴）
-      // rotation: -1 to 1 映射到旋转角度: -360° to 360° (2π)
-      ringGroupRef.current.rotation.y = rotation * Math.PI * 2;
-    }
-
-    // 更新环的半径（收缩和放松）
-    // suck: 0 = 完全放松（半径最大），1 = 完全收缩（半径最小）
-    const currentRadius = minRadius + (1 - suck) * (maxRadius - minRadius);
-    
-    if (ringMeshRef.current) {
-      const scale = currentRadius / baseRadius; // 计算缩放比例
-      ringMeshRef.current.scale.set(scale, scale, scale);
-    }
-
-    // 更新箭头位置，使其始终在环的边缘
-    if (arrowGroupRef.current) {
-      arrowGroupRef.current.position.x = currentRadius;
+    if (coreRef.current) {
+      // 根据 stroke 值轻微缩放（可选效果）
+      const scaleY = 1 + stroke * 0.1;
+      coreRef.current.scale.y = scaleY;
     }
   });
 
   return (
-    <group>
-      {/* 内芯 - 细圆柱体，静态不移动 - 蓝色系 */}
-      <mesh ref={innerCoreRef} position={[0, 0, 0]}>
-        <cylinderGeometry args={[0.4, 0.4, 2.8, 32]} />
-        <meshStandardMaterial
-          color="#4a8ab8"
-          metalness={0.5}
-          roughness={0.3}
-          emissive="#3a6a98"
-          emissiveIntensity={0.4}
-        />
-      </mesh>
+    <mesh ref={coreRef} position={[0, 0, 0]}>
+      <cylinderGeometry args={[0.35, 0.35, 2.8, 32]} />
+      <meshPhysicalMaterial
+        color="#00d4ff"
+        metalness={0.9}
+        roughness={0.1}
+        emissive="#0099cc"
+        emissiveIntensity={emissiveIntensity}
+        clearcoat={1.0}
+        clearcoatRoughness={0.1}
+      />
+    </mesh>
+  );
+}
 
-      {/* 环组 - 包含环和箭头标记，可以上下移动和绕 Y 轴旋转 */}
-      {/* 环水平放置在 XZ 平面，中心与内芯中心重合，只根据 stroke 上下移动 */}
-      <group 
-        ref={ringGroupRef} 
-        position={[0, defaultStroke * 2.4 - 1.2, 0]} 
-        rotation={[0, defaultRotation * Math.PI * 2, 0]}
-      >
-        {/* 环 - 水平圆环（XZ 平面），中心与内芯重合 - 橙色/金色系 */}
-        {/* torus 默认在 XY 平面（垂直），需要绕 X 轴旋转 90 度到 XZ 平面（水平） */}
-        {/* 根据 suck 值调整半径：0=完全放松（0.9），1=完全收缩（0.6） */}
-        <mesh ref={ringMeshRef} rotation={[Math.PI / 2, 0, 0]} geometry={ringGeometry}>
+// 科技线条装饰组件
+function TechLines({ intensity }: { intensity: number }) {
+  const linesRef = useRef<Group>(null);
+  
+  // 创建多条垂直科技线条
+  const lineCount = 8;
+  const lines = useMemo(() => {
+    return Array.from({ length: lineCount }, (_, i) => {
+      const angle = (i / lineCount) * Math.PI * 2;
+      const radius = 0.38;
+      return {
+        x: Math.cos(angle) * radius,
+        z: Math.sin(angle) * radius,
+        angle
+      };
+    });
+  }, []);
+
+  const emissiveIntensity = useMemo(() => 0.5 + intensity * 1.0, [intensity]);
+
+  return (
+    <group ref={linesRef}>
+      {lines.map((line, index) => (
+        <mesh
+          key={index}
+          position={[line.x, 0, line.z]}
+          rotation={[0, line.angle, 0]}
+        >
+          <cylinderGeometry args={[0.01, 0.01, 2.6, 8]} />
           <meshStandardMaterial
-            color="#d4a574"
-            metalness={0.7}
+            color="#00ffff"
+            emissive="#00aaff"
+            emissiveIntensity={emissiveIntensity}
+            metalness={0.8}
             roughness={0.2}
-            emissive="#b48554"
-            emissiveIntensity={0.6}
           />
         </mesh>
-
-        {/* 箭头标记 - 在环的平面上（XZ 平面），指向切线方向，显示旋转 */}
-        {/* 箭头位置会根据环的半径动态调整 */}
-        <group ref={arrowGroupRef} position={[baseRadius, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          {/* 箭头头部 - 在 XZ 平面，指向切线方向（Z 方向） */}
-          <mesh position={[0, 0, 0.2]} rotation={[0, 0, Math.PI / 2]}>
-            <coneGeometry args={[0.12, 0.3, 8]} />
-            <meshStandardMaterial color="#ff6b9d" emissive="#ff6b9d" emissiveIntensity={0.8} />
-          </mesh>
-          {/* 箭头杆 - 在 XZ 平面 */}
-          <mesh position={[0, 0, 0.05]}>
-            <boxGeometry args={[0.04, 0.04, 0.15]} />
-            <meshStandardMaterial color="#ff6b9d" emissive="#ff6b9d" emissiveIntensity={0.8} />
-          </mesh>
-        </group>
-      </group>
+      ))}
     </group>
   );
 }
 
+// 发光能量环组件
+function EnergyRings({ intensity, yPosition }: { intensity: number; yPosition: number }) {
+  const ringIntensity = useMemo(() => 0.8 + intensity * 1.2, [intensity]);
+  
+  return (
+    <group position={[0, yPosition, 0]}>
+      {/* 上边缘能量环 */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.75, 0.02, 16, 32]} />
+        <meshStandardMaterial
+          color="#00aaff"
+          emissive="#00ffff"
+          emissiveIntensity={ringIntensity}
+          metalness={0.9}
+          roughness={0.1}
+        />
+      </mesh>
+      {/* 下边缘能量环 */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, -0.3, 0]}>
+        <torusGeometry args={[0.75, 0.02, 16, 32]} />
+        <meshStandardMaterial
+          color="#00aaff"
+          emissive="#00ffff"
+          emissiveIntensity={ringIntensity}
+          metalness={0.9}
+          roughness={0.1}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+// 外部套筒组件
+function OuterSleeve({ 
+  stroke, 
+  rotation, 
+  suck, 
+  intensity 
+}: { 
+  stroke: number; 
+  rotation: number; 
+  suck: number;
+  intensity: number;
+}) {
+  const sleeveGroupRef = useRef<Group>(null);
+  const ringsRef = useRef<Mesh[]>([]);
+
+  // 套筒尺寸参数
+  const sleeveHeight = 0.6; // 套筒高度
+  const outerRadiusMin = 0.6; // 完全收缩时的外径
+  const outerRadiusMax = 0.9; // 完全放松时的外径
+  
+  // 根据 suck 值计算外径
+  const outerRadius = outerRadiusMin + (1 - suck) * (outerRadiusMax - outerRadiusMin);
+  
+  // 透明度根据 suck 值调整（收缩时更透明）
+  const opacity = useMemo(() => 0.4 + (1 - suck) * 0.2, [suck]);
+  
+  // 根据 intensity 调整发光
+  const emissiveIntensity = useMemo(() => intensity * 0.6, [intensity]);
+
+  useFrame(() => {
+    if (sleeveGroupRef.current) {
+      // 上下移动：根据 stroke 值
+      const minY = -1.2;
+      const maxY = 1.2;
+      sleeveGroupRef.current.position.y = minY + stroke * (maxY - minY);
+      
+      // 旋转：根据 rotation 值
+      sleeveGroupRef.current.rotation.y = rotation * Math.PI * 2;
+    }
+    
+    // 更新所有圆环的半径（根据 suck 值动态调整）
+    const baseRadius = 0.75; // 基础半径
+    const currentRadius = outerRadiusMin + (1 - suck) * (outerRadiusMax - outerRadiusMin);
+    const scale = currentRadius / baseRadius;
+    
+    ringsRef.current.forEach((ring) => {
+      if (ring) {
+        ring.scale.set(scale, scale, 1); // 只缩放 X 和 Z，保持 Y 不变
+      }
+    });
+  });
+
+  // 创建旋转标记（用于显示旋转方向）
+  const rotationMarkers = useMemo(() => {
+    return Array.from({ length: 4 }, (_, i) => {
+      const angle = (i / 4) * Math.PI * 2;
+      return {
+        x: Math.cos(angle) * 0.78,
+        z: Math.sin(angle) * 0.78,
+        angle
+      };
+    });
+  }, []);
+
+  // 使用多个圆环堆叠创建空心套筒效果
+  const ringCount = 12; // 圆环数量，越多越平滑
+  const ringSpacing = sleeveHeight / ringCount;
+  const ringThickness = 0.08; // 圆环厚度
+
+  return (
+    <group ref={sleeveGroupRef}>
+      {/* 使用多个水平圆环堆叠创建空心套筒 */}
+      {Array.from({ length: ringCount }, (_, i) => {
+        const y = (i - (ringCount - 1) / 2) * ringSpacing;
+        const baseRadius = 0.75; // 基础半径
+        
+        return (
+          <mesh
+            key={i}
+            ref={(el) => {
+              if (el) ringsRef.current[i] = el;
+            }}
+            position={[0, y, 0]}
+            rotation={[Math.PI / 2, 0, 0]} // 旋转到水平方向
+          >
+            <torusGeometry args={[baseRadius, ringThickness, 16, 32]} />
+            <meshPhysicalMaterial
+              color="#c0c0c0"
+              metalness={0.8}
+              roughness={0.2}
+              transparent
+              opacity={opacity}
+              emissive="#808080"
+              emissiveIntensity={emissiveIntensity}
+              clearcoat={1.0}
+              clearcoatRoughness={0.1}
+              // Fresnel 效果（边缘发光）
+              transmission={0.2}
+              thickness={0.3}
+            />
+          </mesh>
+        );
+      })}
+      
+      {/* 旋转标记 - 在套筒表面添加发光标记，使旋转更明显 */}
+      {rotationMarkers.map((marker, index) => (
+        <mesh
+          key={index}
+          position={[marker.x, 0, marker.z]}
+          rotation={[0, marker.angle, 0]}
+        >
+          <boxGeometry args={[0.08, sleeveHeight, 0.02]} />
+          <meshStandardMaterial
+            color="#00ffff"
+            emissive="#00aaff"
+            emissiveIntensity={0.8 + intensity * 0.5}
+            metalness={0.9}
+            roughness={0.1}
+          />
+        </mesh>
+      ))}
+      
+      {/* 能量环 */}
+      <EnergyRings intensity={intensity} yPosition={sleeveHeight / 2 - 0.15} />
+    </group>
+  );
+}
+
+export default function RhythmDeviceScene({ frame }: RhythmDeviceSceneProps) {
+  // 默认值
+  const defaultStroke = 0.5;
+  const defaultRotation = 0;
+  const defaultIntensity = 0.3;
+  const defaultSuck = 0.5;
+
+  const stroke = frame?.stroke ?? defaultStroke;
+  const rotation = frame?.rotation ?? defaultRotation;
+  const intensity = frame?.intensity ?? defaultIntensity;
+  const suck = frame?.suck ?? defaultSuck;
+
+  return (
+    <group>
+      {/* 内部柱体 - 科技蓝金属材质 */}
+      <InnerCore stroke={stroke} intensity={intensity} />
+      
+      {/* 科技线条装饰 */}
+      <TechLines intensity={intensity} />
+      
+      {/* 外部套筒 - 半透明金属，可上下移动、旋转、收缩 */}
+      <OuterSleeve 
+        stroke={stroke}
+        rotation={rotation}
+        suck={suck}
+        intensity={intensity}
+      />
+    </group>
+  );
+}

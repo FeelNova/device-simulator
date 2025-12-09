@@ -24,40 +24,12 @@ const MAX_DEBUG_MESSAGES = 100; // 最大消息数量
 export default function SimulatorPage() {
   // Token 和 Online 状态
   const [token, setToken] = useState<string>('hw2020515');
-  const [mqttBroker, setMqttBroker] = useState<string>('mqtts://ip:port');
+  const [mqttBroker, setMqttBroker] = useState<string>('mqtts://host.mqttbroker.com:8883');
   const [isOnline, setIsOnline] = useState<boolean>(false);
   
   // 调试数据
   const [upstreamMessages, setUpstreamMessages] = useState<DebugMessage[]>([]);
   const [downstreamMessages, setDownstreamMessages] = useState<DebugMessage[]>([]);
-
-  // 添加上行消息的辅助函数
-  const addUpstreamMessage = useCallback((data: any) => {
-    const message: DebugMessage = {
-      id: `${Date.now()}-${Math.random()}`,
-      timestamp: Date.now(),
-      type: 'upstream',
-      data
-    };
-    setUpstreamMessages(prev => {
-      const newMessages = [message, ...prev]; // 新消息在前面（倒序）
-      return newMessages.slice(0, MAX_DEBUG_MESSAGES); // 限制最大数量
-    });
-  }, []);
-
-  // 添加下行消息的辅助函数
-  const addDownstreamMessage = useCallback((data: any) => {
-    const message: DebugMessage = {
-      id: `${Date.now()}-${Math.random()}`,
-      timestamp: Date.now(),
-      type: 'downstream',
-      data
-    };
-    setDownstreamMessages(prev => {
-      const newMessages = [message, ...prev]; // 新消息在前面（倒序）
-      return newMessages.slice(0, MAX_DEBUG_MESSAGES); // 限制最大数量
-    });
-  }, []);
   const {
     isRunning,
     currentFrame,
@@ -73,29 +45,31 @@ export default function SimulatorPage() {
     wsUrl: process.env.NEXT_PUBLIC_WS_URL
   });
 
-  // 验证 MQTT broker 地址是否合法
-  const isValidMqttBroker = useCallback((broker: string): boolean => {
-    if (!broker.trim()) return false;
-    
-    try {
-      const url = new URL(broker);
-      // 支持 mqtt://, mqtts://, ws://, wss:// 协议
-      const validProtocols = ['mqtt:', 'mqtts:', 'ws:', 'wss:'];
-      if (!validProtocols.includes(url.protocol)) {
+  // 验证 MQTT broker 地址是否合法（使用 useMemo 避免重复创建函数）
+  const isValidMqttBroker = useMemo(() => {
+    return (broker: string): boolean => {
+      if (!broker.trim()) return false;
+      
+      try {
+        const url = new URL(broker);
+        // 支持 mqtt://, mqtts://, ws://, wss:// 协议
+        const validProtocols = ['mqtt:', 'mqtts:', 'ws:', 'wss:'];
+        if (!validProtocols.includes(url.protocol)) {
+          return false;
+        }
+        // 必须有 hostname
+        if (!url.hostname) {
+          return false;
+        }
+        // 如果有端口，必须是数字
+        if (url.port && isNaN(parseInt(url.port))) {
+          return false;
+        }
+        return true;
+      } catch {
         return false;
       }
-      // 必须有 hostname
-      if (!url.hostname) {
-        return false;
-      }
-      // 如果有端口，必须是数字
-      if (url.port && isNaN(parseInt(url.port))) {
-        return false;
-      }
-      return true;
-    } catch {
-      return false;
-    }
+    };
   }, []);
 
   // 检查是否可以连接（token 不为空且 broker 地址合法）
@@ -109,6 +83,17 @@ export default function SimulatorPage() {
       stop();
     }
   }, [isOnline, isRunning, stop]);
+
+  // 清理调试消息，避免内存泄漏
+  useEffect(() => {
+    // 定期清理超过最大数量的消息
+    const cleanupInterval = setInterval(() => {
+      setUpstreamMessages(prev => prev.slice(0, MAX_DEBUG_MESSAGES));
+      setDownstreamMessages(prev => prev.slice(0, MAX_DEBUG_MESSAGES));
+    }, 5000); // 每5秒清理一次
+
+    return () => clearInterval(cleanupInterval);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#0c0e12] py-8 md:py-16">
@@ -138,7 +123,7 @@ export default function SimulatorPage() {
                   type="text"
                   value={mqttBroker}
                   onChange={(e) => setMqttBroker(e.target.value)}
-                  placeholder="mqtts://ip:port"
+                  placeholder="mqtts://host.mqttbroker.com:8883"
                   disabled={isOnline}
                   className={`w-full px-4 py-2 bg-white/5 border rounded-lg text-white placeholder:text-white/30 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
                     mqttBroker.trim() && !isValidMqttBroker(mqttBroker) && !isOnline
@@ -321,29 +306,26 @@ export default function SimulatorPage() {
               3D Device Visualization
             </h2>
             
-            {/* 3D场景和图表并排显示 */}
-            <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-              {/* 左侧：3D场景 */}
-              <div className="w-full h-[500px] md:h-[600px] lg:h-full lg:min-h-[500px]">
-                <RhythmCanvas frame={currentFrame} />
+            {/* 3D场景 - 确保在最上层，可以正常拖动 */}
+            <div className="w-full h-[400px] md:h-[450px] lg:h-[500px] mb-4 relative z-10">
+              <RhythmCanvas frame={currentFrame} />
+            </div>
+            
+            {/* 图表区域 - 并排显示在3D场景下方，半透明背景 */}
+            <div className="grid grid-cols-2 gap-3">
+              {/* Stroke 时间轴图表 */}
+              <div className="h-[120px] md:h-[140px] flex flex-col bg-black/40 backdrop-blur-sm rounded-lg border border-white/10 p-1.5">
+                <h3 className="text-xs text-white/80 mb-0.5 flex-shrink-0 font-medium">Stroke Timeline</h3>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <StrokeTimelineChart data={strokeHistory} />
+                </div>
               </div>
               
-              {/* 右侧：时间轴图表 */}
-              <div className="flex flex-col gap-4">
-                {/* Stroke 时间轴图表 */}
-                <div className="h-[200px] md:h-[250px] lg:h-[280px] flex flex-col">
-                  <h3 className="text-sm text-white/70 mb-2 flex-shrink-0">Stroke Timeline</h3>
-                  <div className="flex-1 min-h-0">
-                    <StrokeTimelineChart data={strokeHistory} />
-                  </div>
-                </div>
-                
-                {/* Rotation 时间轴图表 */}
-                <div className="h-[200px] md:h-[250px] lg:h-[280px] flex flex-col">
-                  <h3 className="text-sm text-white/70 mb-2 flex-shrink-0">Rotation Timeline</h3>
-                  <div className="flex-1 min-h-0">
-                    <RotationTimelineChart data={rotationHistory} />
-                  </div>
+              {/* Rotation 时间轴图表 */}
+              <div className="h-[120px] md:h-[140px] flex flex-col bg-black/40 backdrop-blur-sm rounded-lg border border-white/10 p-1.5">
+                <h3 className="text-xs text-white/80 mb-0.5 flex-shrink-0 font-medium">Rotation Timeline</h3>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <RotationTimelineChart data={rotationHistory} />
                 </div>
               </div>
             </div>
@@ -352,21 +334,21 @@ export default function SimulatorPage() {
             <div className="mt-4 pt-4 border-t border-white/10">
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
-                  <span className="text-white/50">Stroke Speed:</span>
+                  <span className="text-white/50">stroke:</span>
                   <span className="text-white ml-2">
-                    {Math.abs(strokeVelocity).toFixed(3)}/s
+                    {Math.abs(strokeVelocity).toFixed(2)}/s
                   </span>
                 </div>
                 <div>
-                  <span className="text-white/50">Rotation Speed:</span>
+                  <span className="text-white/50">Rotation:</span>
                   <span className="text-white ml-2">
-                    {rotationVelocity.toFixed(3)}/s
+                    {rotationVelocity.toFixed(2)}/s
                   </span>
                 </div>
                 <div>
                   <span className="text-white/50">Suck:</span>
                   <span className="text-white ml-2">
-                    {currentFrame ? currentFrame.suck.toFixed(3) : '0.500'}
+                    {currentFrame ? currentFrame.suck.toFixed(1) : '0.5'}
                   </span>
                 </div>
               </div>

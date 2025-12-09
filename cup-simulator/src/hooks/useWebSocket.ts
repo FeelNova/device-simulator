@@ -49,7 +49,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('WebSocket connected');
         setIsConnected(true);
         reconnectAttemptsRef.current = 0;
         onConnect?.();
@@ -74,7 +73,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       };
 
       ws.onclose = () => {
-        console.log('WebSocket disconnected');
         setIsConnected(false);
         onDisconnect?.();
 
@@ -82,11 +80,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         if (enabled && reconnectAttemptsRef.current < maxReconnectAttempts) {
           reconnectAttemptsRef.current += 1;
           reconnectTimeoutRef.current = setTimeout(() => {
-            console.log(`Reconnecting... (attempt ${reconnectAttemptsRef.current})`);
             connect();
           }, reconnectDelay);
-        } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-          console.warn('Max reconnection attempts reached');
         }
       };
     } catch (error) {
@@ -128,12 +123,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   useEffect(() => {
     if (enabled && url) {
       connect();
+    } else {
+      disconnect();
     }
 
     return () => {
       disconnect();
     };
-  }, [enabled, url, connect, disconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, url]); // 移除 connect 和 disconnect 依赖，避免无限循环
 
   return {
     isConnected,

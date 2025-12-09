@@ -188,12 +188,12 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
 
     const cleanupInterval = setInterval(() => {
       const now = Date.now();
-      const cutoff = now - 12000; // 12秒前（稍微多保留一点，避免边界问题）
+      const cutoff = now - 10000; // 10秒前
 
       setStrokeHistory(prev => {
         // 限制最大长度，避免数组无限增长
         const filtered = prev.filter(point => point.timestamp >= cutoff);
-        // 如果过滤后仍然很长，只保留最新的
+        // 如果过滤后仍然很长，只保留最新的500条
         return filtered.length > 500 ? filtered.slice(-500) : filtered;
       });
       
@@ -201,7 +201,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         const filtered = prev.filter(point => point.timestamp >= cutoff);
         return filtered.length > 500 ? filtered.slice(-500) : filtered;
       });
-    }, 500); // 每500ms清理一次，更频繁
+    }, 2000); // 每2秒清理一次，减少频率
 
     return () => clearInterval(cleanupInterval);
   }, [isRunning]);
