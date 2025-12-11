@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package com.sexToy.proto;
+
+// 设备注册消息（设备 → 后端）
+message DeviceRegister {
+  string device_token = 1;       // 设备Token
+  string device_sn = 2;          // 设备序列号（必填）
+  string device_type = 3;        // 设备类型（必填，如：vibrator, massager）
+  uint64 register_time = 4;      // 注册时间戳，Unix时间戳（毫秒）
+}
+
+// 设备心跳消息（设备 → 后端）
+message DeviceHeartbeat {
+  string device_token = 1;       // 设备Token
+  uint64 last_online_time = 2;   // 最后在线时间，Unix时间戳（毫秒）
+  int32 battery_level = 3;       // 电池电量（百分比，0-100）
+  uint64 heartbeat_time = 4;     // 心跳时间戳，Unix时间戳（毫秒）
+}
+
+// 指令类型枚举
+enum CommandType {
+  COMMAND_UNSPECIFIED = 0;  // 未指定
+  COMMAND_START = 1;         // 开始运行
+  COMMAND_STOP = 2;          // 停止运行
+  COMMAND_TASK = 3;          // 详细任务指令（需解析 command_data）
+}
+
+// 设备指令消息（后端 → 设备）
+message DeviceCommand {
+  string device_token = 1;       // 设备Token
+  CommandType command_type = 2;  // 指令类型
+  bytes command_data = 3;         // 指令内容（二进制数据，最大16KB）
+  uint64 timestamp = 4;          // 时间戳，Unix时间戳（毫秒）
+}
+

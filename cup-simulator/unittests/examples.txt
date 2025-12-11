@@ -1,0 +1,173 @@
+======== Dumping message to <reset_command.bin>
+control {
+  command: COMMAND_RESET
+}
+
+======== Dumping message to <config.bin>
+config {
+  primitives {
+    primitive_id: "primitive_1"
+    movements {
+      distance: 0.2
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      distance: 0.3
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      distance: 0.3
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      distance: 0.2
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      direction: DIRECTION_UP
+      distance: 0.2
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      direction: DIRECTION_UP
+      distance: 0.3
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      direction: DIRECTION_UP
+      distance: 0.3
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      direction: DIRECTION_UP
+      distance: 0.2
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+  }
+  primitives {
+    primitive_id: "primitive_2"
+    movements {
+      distance: 0.1
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      distance: 0.4
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      distance: 0.3
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      distance: 0.2
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      direction: DIRECTION_UP
+      distance: 0.2
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      direction: DIRECTION_UP
+      distance: 0.3
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      direction: DIRECTION_UP
+      distance: 0.4
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+    movements {
+      direction: DIRECTION_UP
+      distance: 0.1
+      duration: 0.3
+      rotation: 1
+      rotation_direction: ROT_DIR_COUNTER_CLOCKWISE
+    }
+  }
+}
+
+======== Dumping message to <session.bin>
+session {
+  units {
+    primitive_id: "primitive_1"
+    iteration: 15
+    intensity: 1
+  }
+  units {
+    primitive_id: "primitive_2"
+    iteration: 15
+    intensity: 1
+  }
+  units {
+    primitive_id: "primitive_1"
+    iteration: 15
+    intensity: 1
+  }
+  units {
+    primitive_id: "primitive_2"
+    iteration: 15
+    intensity: 1
+  }
+  units {
+    primitive_id: "primitive_1"
+    iteration: 15
+    intensity: 1
+  }
+  units {
+    primitive_id: "primitive_2"
+    iteration: 15
+    intensity: 1
+  }
+  units {
+    primitive_id: "primitive_1"
+    iteration: 15
+    intensity: 1
+  }
+  units {
+    primitive_id: "primitive_2"
+    iteration: 15
+    intensity: 1
+  }
+  units {
+    primitive_id: "primitive_1"
+    iteration: 15
+    intensity: 1
+  }
+  units {
+    primitive_id: "primitive_2"
+    iteration: 15
+    intensity: 1
+  }
+}
+

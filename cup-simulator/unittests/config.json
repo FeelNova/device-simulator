@@ -1,0 +1,13 @@
+{
+  "mqtt": {
+    "broker_url": "mqtts://www.feelai-nova.com:8883",
+    "username": "",
+    "password": "",
+    "keepalive": 60,
+    "qos": 1
+  },
+  "device": {
+    "token": "hw2020515"
+  }
+}
+
