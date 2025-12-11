@@ -77,15 +77,23 @@ syntax = "proto3";
 
 package com.sexToy.proto;
 
-// 设备注册消息（设备 → 后端）
+// 指令类型枚举
+enum CommandType {
+  COMMAND_UNSPECIFIED = 0;  // 未指定
+  COMMAND_START = 1;         // 开始运行
+  COMMAND_STOP = 2;          // 停止运行
+  COMMAND_TASK = 3;          // 详细任务指令（需解析 command_data）
+}
+
+// 设备指令消息（后端 → 设备）
 message DeviceCommand {
   string device_token = 1[(nanopb).max_length = 128];       // 设备Token
-  string command_type = 2[(nanopb).max_length = 128];      // 指令类型
-  bytes command_data = 3[(nanopb).max_size = 128];         // 指令内容（二进制数据，最大128字节）
+  CommandType command_type = 2;                              // 指令类型（枚举）
+  bytes command_data = 3[(nanopb).max_size = 16k];         // 指令内容（二进制数据，最大16KB）
   uint64 timestamp = 4;         // 时间戳，Unix时间戳（毫秒）
 }
 
-// 设备心跳消息（设备 → 后端）
+// 设备注册消息（设备 → 后端）
 message DeviceRegister {
   string device_token = 1[(nanopb).max_length = 128];       // 设备Token
   string device_sn = 2[(nanopb).max_length = 128];          // 设备序列号（必填）
@@ -93,7 +101,8 @@ message DeviceRegister {
   uint64 register_time = 4;     // 注册时间戳，Unix时间戳（毫秒）
 }
 
-// 设备指令消息（后端 → 设备）
+
+// 设备心跳消息（设备 → 后端）
 message DeviceHeartbeat {
   string device_token = 1[(nanopb).max_length = 128];       // 设备Token
   uint64 last_online_time = 2;   // 最后在线时间，Unix时间戳（毫秒）
@@ -127,9 +136,14 @@ message DeviceHeartbeat {
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `device_token` | string | ✅ | 设备Token |
-| `command_type` | string | ✅ | 指令类型，常见值：<br>- `start`: 启动设备<br>- `stop`: 停止设备<br>- `vibrate`: 振动控制<br>- `set_mode`: 设置模式<br>- `set_intensity`: 设置强度 |
-| `command_data` | bytes | ❌ | 指令的二进制数据（可为空） |
+| `command_type` | CommandType | ✅ | 指令类型（枚举）：<br>- `COMMAND_START (1)`: 开始运行<br>- `COMMAND_STOP (2)`: 停止运行<br>- `COMMAND_TASK (3)`: 详细任务指令（需解析 command_data） |
+| `command_data` | bytes | ❌ | 指令的二进制数据（DeviceMotionMessage 序列化后的数据，可为空） |
 | `timestamp` | int64 | ✅ | 消息生成时间戳，Unix时间戳（毫秒） |
+
+**CommandType 枚举说明**：
+- `COMMAND_START (1)`: 开始运行设备，通常配合 `command_data` 中的 `SessionMessage` 使用
+- `COMMAND_STOP (2)`: 停止设备运行，不需要 `command_data`
+- `COMMAND_TASK (3)`: 详细任务指令，`command_data` 包含 `DeviceMotionMessage`（可能是 `ConfigMessage`、`SessionMessage` 或 `ControlMessage`）
 
 ### Protobuf编码说明
 
@@ -314,20 +328,41 @@ void on_device_command_received(const char *topic, uint8_t *payload, size_t len)
     }
     
     // 3. 处理指令
-    if (strcmp(command.command_type, "start") == 0) {
-        device_start();
-    } else if (strcmp(command.command_type, "stop") == 0) {
+    if (command.command_type == COMMAND_START) {
+        // 开始运行，解析 command_data 中的 DeviceMotionMessage
+        if (command.command_data != NULL && command.command_data_len > 0) {
+            DeviceMotionMessage motion_msg;
+            if (protobuf_decode_device_motion_message(command.command_data, command.command_data_len, &motion_msg) == 0) {
+                // 处理运动指令
+                device_start_with_motion(&motion_msg);
+            }
+        } else {
+            device_start();
+        }
+    } else if (command.command_type == COMMAND_STOP) {
+        // 停止运行
         device_stop();
-    } else if (strcmp(command.command_type, "vibrate") == 0) {
-        // 使用command_data作为振动参数
-        device_vibrate(command.command_data, command.command_data_len);
-    } else if (strcmp(command.command_type, "set_mode") == 0) {
-        device_set_mode(command.command_data, command.command_data_len);
-    } else if (strcmp(command.command_type, "set_intensity") == 0) {
-        device_set_intensity(command.command_data, command.command_data_len);
+    } else if (command.command_type == COMMAND_TASK) {
+        // 详细任务指令，解析 command_data 中的 DeviceMotionMessage
+        if (command.command_data != NULL && command.command_data_len > 0) {
+            DeviceMotionMessage motion_msg;
+            if (protobuf_decode_device_motion_message(command.command_data, command.command_data_len, &motion_msg) == 0) {
+                // 根据 DeviceMotionMessage 的类型处理
+                if (motion_msg.has_config) {
+                    // 配置消息
+                    device_set_config(&motion_msg.config);
+                } else if (motion_msg.has_session) {
+                    // 会话消息
+                    device_start_session(&motion_msg.session);
+                } else if (motion_msg.has_control) {
+                    // 控制消息
+                    device_handle_control(&motion_msg.control);
+                }
+            }
+        }
     } else {
         // 未知指令类型
-        log_warn("Unknown command type: %s", command.command_type);
+        log_warn("Unknown command type: %d", command.command_type);
     }
 }
 ```
