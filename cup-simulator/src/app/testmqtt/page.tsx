@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import mqtt, { MqttClient } from 'mqtt';
+import mqtt, { MqttClient, IClientOptions } from 'mqtt';
 
 export default function TestMqttPage() {
   const [brokerUrl, setBrokerUrl] = useState<string>('ws://www.feelnova-ai.com:8083/mqtt');
@@ -37,7 +37,7 @@ export default function TestMqttPage() {
     addLog(`Username: ${username}, Password: ${password ? '***' : '(empty)'}`);
 
     try {
-      const options = {
+      const options: IClientOptions = {
         clientId: `test_client_${Date.now()}`,
         username: username || undefined,
         password: password || undefined,
@@ -45,8 +45,8 @@ export default function TestMqttPage() {
         clean: true,
         reconnectPeriod: 0,
         connectTimeout: 30000,
-        protocolVersion: 4, // MQTT 3.1.1
-        qos: 1
+        protocolVersion: 4 as const, // MQTT 3.1.1 (类型必须是 3 | 4 | 5)
+        // 移除 qos: 1，因为它不属于连接选项
       };
 
       const mqttClient = mqtt.connect(brokerUrl, options);
@@ -54,7 +54,7 @@ export default function TestMqttPage() {
 
       mqttClient.on('connect', (packet) => {
         addLog(`✓ Connected successfully`);
-        addLog(`Client ID: ${packet.clientId || 'N/A'}`);
+        addLog(`Client ID: ${(mqttClient as any)?.options?.clientId || options.clientId || 'N/A'}`);
         addLog(`Return Code: ${packet.returnCode}`);
         addLog(`Session Present: ${packet.sessionPresent}`);
         setIsConnected(true);
@@ -67,7 +67,7 @@ export default function TestMqttPage() {
             4: 'Connection Refused: bad user name or password',
             5: 'Connection Refused: not authorized'
           };
-          const errorMsg = errorMessages[packet.returnCode] || `Unknown error (code: ${packet.returnCode})`;
+          const errorMsg = errorMessages[(packet.returnCode ?? 0)] || `Unknown error (code: ${packet.returnCode})`;
           addLog(`✗ Connection rejected: ${errorMsg}`);
           setIsConnected(false);
         }

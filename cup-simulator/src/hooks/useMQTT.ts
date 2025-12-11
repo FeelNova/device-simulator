@@ -79,13 +79,14 @@ export function useMQTT(options: UseMQTTOptions = {}) {
 
       client.on('connect', (packet) => {
         addLog('✓ Connected successfully', 'success');
-        addLog(`Client ID: ${packet.clientId || clientId}`, 'info');
+        // IConnackPacket does not have clientId, so just log the provided clientId
+        addLog(`Client ID: ${clientId}`, 'info');
         addLog(`Return Code: ${packet.returnCode}`, 'info');
         addLog(`Session Present: ${packet.sessionPresent}`, 'info');
         setIsConnected(true);
         onConnect?.();
 
-        if (packet.returnCode !== 0) {
+        if (packet.returnCode !== 0 && packet.returnCode !== undefined) {
           const errorMessages: Record<number, string> = {
             1: 'Connection Refused: unacceptable protocol version',
             2: 'Connection Refused: identifier rejected',
@@ -93,7 +94,8 @@ export function useMQTT(options: UseMQTTOptions = {}) {
             4: 'Connection Refused: bad user name or password',
             5: 'Connection Refused: not authorized'
           };
-          const errorMsg = errorMessages[packet.returnCode] || `Unknown error (code: ${packet.returnCode})`;
+          const returnCode = packet.returnCode;
+          const errorMsg = errorMessages[returnCode] || `Unknown error (code: ${returnCode})`;
           addLog(`✗ Connection rejected: ${errorMsg}`, 'error');
           setIsConnected(false);
         }
