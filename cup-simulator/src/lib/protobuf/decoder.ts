@@ -25,7 +25,7 @@ export async function initProtobuf(): Promise<void> {
 
   try {
     // 使用内联 schema（因为浏览器环境无法直接读取文件）
-    const deviceCommandProto = `
+    const combinedProto = `
       syntax = "proto3";
       
       package com.sexToy.proto;
@@ -46,10 +46,6 @@ export async function initProtobuf(): Promise<void> {
     `;
 
     const deviceMotionProto = `
-      syntax = "proto3";
-      
-      package device_motion;
-      
       message DeviceMotionMessage {
         oneof body {
           ConfigMessage config = 1;
@@ -110,9 +106,12 @@ export async function initProtobuf(): Promise<void> {
       }
     `;
 
-    root = protobuf.parse(deviceCommandProto + '\n' + deviceMotionProto).root;
+    // 合并两个 proto 字符串（deviceMotionProto 已经移除了 package 声明）
+    const mergedProto = combinedProto + '\n' + deviceMotionProto;
+    
+    root = protobuf.parse(mergedProto).root;
     DeviceCommandType = root.lookupType('com.sexToy.proto.DeviceCommand');
-    DeviceMotionMessageType = root.lookupType('device_motion.DeviceMotionMessage');
+    DeviceMotionMessageType = root.lookupType('com.sexToy.proto.DeviceMotionMessage');
   } catch (error) {
     console.error('Failed to load protobuf schema:', error);
     throw error;

@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSimulator } from '@/hooks/useSimulator';
 import { useMQTT, MQTTLog } from '@/hooks/useMQTT';
 import * as protobuf from 'protobufjs';
+import { decodeDeviceMotionMessage } from '@/lib/protobuf/decoder';
 import RhythmCanvas from '@/components/RhythmCanvas';
 import StrokeTimelineChart from '@/components/simulator/StrokeTimelineChart';
 import RotationTimelineChart from '@/components/simulator/RotationTimelineChart';
@@ -22,6 +23,13 @@ interface DebugMessage {
   clientId?: string;
   topic?: string;
   binaryData?: Uint8Array | Buffer;
+}
+
+// 运动任务数据类型
+interface MotionTask {
+  id: string;
+  name: string;
+  data: Uint8Array;
 }
 
 const MAX_DEBUG_MESSAGES = 100; // 最大消息数量
@@ -46,6 +54,10 @@ export default function SimulatorPage() {
   
   // MQTT 日志
   const [mqttLogs, setMqttLogs] = useState<MQTTLog[]>([]);
+
+  // 运动规划任务
+  const [motionTasks, setMotionTasks] = useState<MotionTask[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string>('');
 
   const {
     isRunning,
@@ -95,6 +107,99 @@ export default function SimulatorPage() {
     URL.revokeObjectURL(url);
   }, []);
 
+  // 渲染消息数据，特殊处理 commandType=3 的情况
+  const renderMessageData = useCallback((data: any, textColorClass: string = '') => {
+    // 如果 commandType=3 且 commandData 不为空，特殊处理
+    if (data.commandType === 3 && data.commandData && data.commandData.length > 0) {
+      // 创建新的对象，排除 commandData
+      const { commandData, decodedCommandData, ...rest } = data;
+      
+      // 构建显示对象
+      const displayData = { ...rest };
+      
+      if (decodedCommandData) {
+        // 反序列化成功
+        displayData['commandData (decoded)'] = decodedCommandData;
+      } else {
+        // 反序列化失败
+        displayData['commandData (decoded)'] = 'decoded failed';
+      }
+      
+      return (
+        <div>
+          {Object.entries(displayData).map(([key, value]) => (
+            <div key={key} className="mb-1">
+              <span className="text-white/70">
+                {key === 'commandData (decoded)' ? (
+                  <>
+                    commandData <span className="text-red-400">(decoded)</span>:
+                  </>
+                ) : (
+                  `${key}:`
+                )}
+              </span>
+              <pre className={`${textColorClass} mt-0.5 ml-4 whitespace-pre-wrap`}>
+                {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+              </pre>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    
+    // 普通情况，使用 JSON.stringify
+    return (
+      <pre className="whitespace-pre-wrap">
+        {JSON.stringify(data, null, 2)}
+      </pre>
+    );
+  }, []);
+
+  // 处理文件上传
+  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // 读取文件为 ArrayBuffer
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const arrayBuffer = e.target?.result as ArrayBuffer;
+      const data = new Uint8Array(arrayBuffer);
+      
+      // 弹出输入框让用户输入任务名称
+      const taskName = prompt('请输入任务名称:', file.name);
+      if (!taskName || !taskName.trim()) {
+        alert('任务名称不能为空');
+        return;
+      }
+
+      // 创建新任务
+      const newTask: MotionTask = {
+        id: `${Date.now()}-${Math.random()}`,
+        name: taskName.trim(),
+        data: data
+      };
+
+      // 添加到任务列表并保存到 localStorage
+      setMotionTasks(prev => {
+        const updated = [...prev, newTask];
+        localStorage.setItem('motionTasks', JSON.stringify(updated.map(t => ({
+          id: t.id,
+          name: t.name,
+          data: Array.from(t.data) // 转换为数组以便 JSON 序列化
+        }))));
+        return updated;
+      });
+
+      // 自动选中新添加的任务
+      setSelectedTaskId(newTask.id);
+    };
+    reader.readAsArrayBuffer(file);
+    
+    // 清空 input，允许重复上传同一文件
+    event.target.value = '';
+  }, []);
+
   // 处理 MQTT 消息
   const handleMQTTMessage = useCallback(async (topic: string, message: Buffer) => {
     const timestamp = Date.now();
@@ -126,6 +231,17 @@ export default function SimulatorPage() {
           if (decoded.commandData !== undefined && decoded.commandData !== null && decoded.commandData.length > 0) {
             // commandData 是 bytes，转换为数组以便 JSON 序列化
             messageObj.commandData = Array.from(decoded.commandData);
+            
+            // 如果 commandType=3 (COMMAND_TASK)，尝试反序列化 commandData
+            if (decoded.commandType === 3) {
+              try {
+                const decodedMotion = await decodeDeviceMotionMessage(decoded.commandData);
+                messageObj.decodedCommandData = decodedMotion;
+              } catch (error) {
+                console.error('Failed to decode DeviceMotionMessage:', error);
+                // 反序列化失败时，不添加 decodedCommandData 字段
+              }
+            }
           }
           if (decoded.timestamp !== undefined && decoded.timestamp !== null) {
             // timestamp 是 uint64，protobufjs 可能返回 Long 对象或字符串
@@ -204,6 +320,23 @@ export default function SimulatorPage() {
       console.error('Failed to process MQTT message:', error);
     }
   }, [deviceToken, start, stop]);
+
+  // 从 localStorage 加载运动任务
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('motionTasks');
+      if (saved) {
+        const tasks = JSON.parse(saved).map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          data: new Uint8Array(t.data) // 从数组恢复为 Uint8Array
+        }));
+        setMotionTasks(tasks);
+      }
+    } catch (error) {
+      console.error('Failed to load motion tasks from localStorage:', error);
+    }
+  }, []);
   
   // MQTT 连接
   const {
@@ -227,6 +360,91 @@ export default function SimulatorPage() {
       setSubscribedTopic(null);
     }
   });
+
+  // 处理下发任务
+  const handleSendTask = useCallback(async () => {
+    if (!isMQTTConnected) {
+      alert('Please connect to MQTT broker first');
+      return;
+    }
+
+    if (!deviceToken.trim()) {
+      alert('Please enter device token first');
+      return;
+    }
+
+    if (!selectedTaskId) {
+      alert('Please select a motion task');
+      return;
+    }
+
+    const selectedTask = motionTasks.find(t => t.id === selectedTaskId);
+    if (!selectedTask) {
+      alert('Selected task not found');
+      return;
+    }
+
+    try {
+      // 加载 protobuf 定义
+      const root = await protobuf.load('/device.proto');
+      const DeviceCommand = root.lookupType('com.sexToy.proto.DeviceCommand');
+
+      // 创建消息对象，commandType 设置为 3 (COMMAND_TASK)
+      const message: any = {
+        deviceToken: deviceToken,
+        commandType: 3, // COMMAND_TASK
+        commandData: selectedTask.data, // 使用选中任务的二进制数据
+        timestamp: Date.now()
+      };
+
+      // 验证消息
+      const errMsg = DeviceCommand.verify(message);
+      if (errMsg) {
+        throw new Error(`Invalid message: ${errMsg}`);
+      }
+
+      // 创建消息实例并序列化
+      const deviceCommandMsg = DeviceCommand.create(message);
+      const uint8Array = DeviceCommand.encode(deviceCommandMsg).finish();
+      const buffer = Buffer.from(uint8Array) as any;
+
+      // 发布消息
+      const topic = `device/command/${deviceToken}`;
+      const currentClientId = (mqttClient as any)?.options?.clientId || 'CupSimulator';
+      publishMQTT(topic, buffer, { qos: 1 }, async (error?: Error) => {
+        if (!error) {
+          // 如果 commandType=3 且 commandData 不为空，尝试反序列化
+          let decodedCommandData = undefined;
+          if (message.commandType === 3 && message.commandData && message.commandData.length > 0) {
+            try {
+              decodedCommandData = await decodeDeviceMotionMessage(message.commandData);
+            } catch (error) {
+              console.error('Failed to decode DeviceMotionMessage:', error);
+            }
+          }
+          
+          // 添加到 Published 区域
+          const messageData = { ...message };
+          if (decodedCommandData) {
+            messageData.decodedCommandData = decodedCommandData;
+          }
+          
+          setUpstreamMessages(prev => [{
+            id: `${Date.now()}-${Math.random()}`,
+            timestamp: Date.now(),
+            type: 'upstream' as const,
+            data: messageData,
+            clientId: currentClientId,
+            topic: topic,
+            binaryData: buffer
+          }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
+        }
+      });
+    } catch (error) {
+      console.error('Failed to send task command:', error);
+      alert(`Failed to send task command: ${(error as Error).message}`);
+    }
+  }, [isMQTTConnected, deviceToken, selectedTaskId, motionTasks, mqttClient, publishMQTT, setUpstreamMessages]);
 
   // 清理调试消息，避免内存泄漏
   useEffect(() => {
@@ -584,6 +802,50 @@ export default function SimulatorPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* 运动规划任务指令发送区 */}
+                <div className="space-y-3 mt-4 pt-4 border-t border-white/10">
+                  <label className="block text-sm text-white/70 mb-2">Motion Planning Task</label>
+                  
+                  {/* 下拉菜单 */}
+                  <div>
+                    <label className="block text-xs text-white/60 mb-1">Select Task</label>
+                    <select
+                      value={selectedTaskId}
+                      onChange={(e) => setSelectedTaskId(e.target.value)}
+                      disabled={!isMQTTConnected || !deviceToken.trim() || motionTasks.length === 0}
+                      className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <option value="">-- Select a task --</option>
+                      {motionTasks.map((task) => (
+                        <option key={task.id} value={task.id}>
+                          {task.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 文件上传 */}
+                  <div>
+                    <label className="block text-xs text-white/60 mb-1">Upload Task File</label>
+                    <input
+                      type="file"
+                      accept=".bin"
+                      onChange={handleFileUpload}
+                      disabled={!isMQTTConnected || !deviceToken.trim()}
+                      className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500/20 file:text-blue-200 hover:file:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                  </div>
+
+                  {/* 下发任务按钮 */}
+                  <button
+                    onClick={handleSendTask}
+                    disabled={!isMQTTConnected || !deviceToken.trim() || !selectedTaskId}
+                    className="w-full px-6 py-2 bg-purple-500/20 border border-purple-500/50 text-purple-200 rounded-lg hover:bg-purple-500/30 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 active:opacity-80"
+                  >
+                    Send Task
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -721,8 +983,8 @@ export default function SimulatorPage() {
                           </button>
                         </div>
                       )}
-                      <div className="text-green-400 break-all whitespace-pre-wrap">
-                        {JSON.stringify(msg.data, null, 2)}
+                      <div className="text-green-400 break-all">
+                        {renderMessageData(msg.data, 'text-green-400')}
                       </div>
                     </div>
                   ))
@@ -765,8 +1027,8 @@ export default function SimulatorPage() {
                           </button>
                         </div>
                       )}
-                      <div className="text-blue-400 break-all whitespace-pre-wrap">
-                        {JSON.stringify(msg.data, null, 2)}
+                      <div className="text-blue-400 break-all">
+                        {renderMessageData(msg.data, 'text-blue-400')}
                       </div>
                     </div>
                   ))
