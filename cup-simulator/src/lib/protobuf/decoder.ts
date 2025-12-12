@@ -213,15 +213,19 @@ export async function decodeDeviceMotionMessage(buffer: Uint8Array): Promise<Dev
     });
 
     console.log('[Decoder] 转换为对象后的 decoded:', decoded);
-    console.log('[Decoder] decoded.body:', decoded.body);
+    console.log('[Decoder] decoded.body (type):', decoded.body);
+    console.log('[Decoder] decoded.config:', decoded.config);
+    console.log('[Decoder] decoded.session:', decoded.session);
+    console.log('[Decoder] decoded.control:', decoded.control);
     
+    // body 是字符串，表示哪个字段被设置
     if (decoded.body) {
-      if (decoded.body.config) {
-        console.log('[Decoder] 检测到 ConfigMessage, primitives数量:', decoded.body.config.primitives?.length || 0);
-      } else if (decoded.body.session) {
-        console.log('[Decoder] 检测到 SessionMessage, units数量:', decoded.body.session.units?.length || 0);
-      } else if (decoded.body.control) {
-        console.log('[Decoder] 检测到 ControlMessage, command:', decoded.body.control.command);
+      if (decoded.body === 'config' && decoded.config) {
+        console.log('[Decoder] 检测到 ConfigMessage, primitives数量:', decoded.config.primitives?.length || 0);
+      } else if (decoded.body === 'session' && decoded.session) {
+        console.log('[Decoder] 检测到 SessionMessage, units数量:', decoded.session.units?.length || 0);
+      } else if (decoded.body === 'control' && decoded.control) {
+        console.log('[Decoder] 检测到 ControlMessage, command:', decoded.control.command);
       }
     }
 

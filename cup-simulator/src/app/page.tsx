@@ -72,7 +72,8 @@ export default function SimulatorPage() {
     start,
     stop,
     processMotionCommand,
-    queueCommand
+    queueCommand,
+    clearMotionLogs
   } = useSimulator({
     useWebSocket: false, // 默认使用 mock 模式，可以通过环境变量或配置启用
     wsUrl: process.env.NEXT_PUBLIC_WS_URL
@@ -292,12 +293,32 @@ export default function SimulatorPage() {
             
             // 处理详细任务控制指令
             if (messageObj.decodedCommandData) {
+              const decoded = messageObj.decodedCommandData;
+              const bodyType = decoded.body; // "config" | "session" | "control"
+              
+              console.log('[MQTT] decodedCommandData.body (type):', bodyType);
+              console.log('[MQTT] decodedCommandData.config:', decoded.config);
+              console.log('[MQTT] decodedCommandData.session:', decoded.session);
+              console.log('[MQTT] decodedCommandData.control:', decoded.control);
+              
+              // 根据 body 字符串值，从顶层字段获取实际数据
               const motionMessage: DeviceMotionMessage = {
-                body: messageObj.decodedCommandData.body
+                body: bodyType === 'config' && decoded.config
+                  ? { config: decoded.config }
+                  : bodyType === 'session' && decoded.session
+                  ? { session: decoded.session }
+                  : bodyType === 'control' && decoded.control
+                  ? { control: decoded.control }
+                  : undefined
               };
               
               console.log('[MQTT] 构建的 motionMessage:', motionMessage);
               console.log('[MQTT] motionMessage.body:', motionMessage.body);
+              
+              if (!motionMessage.body) {
+                console.warn('[MQTT] 无法构建 motionMessage，body 为空或数据不完整');
+                return;
+              }
               
               // 如果当前有运动在执行，将指令加入队列；否则立即执行
               if (isRunning) {
@@ -931,7 +952,7 @@ export default function SimulatorPage() {
             
             {/* 3D场景 - 确保在最上层，可以正常拖动 */}
             <div className="w-full h-[400px] md:h-[450px] lg:h-[500px] mb-4 relative z-10">
-              <RhythmCanvas frame={currentFrame} motionLogs={motionLogs} />
+              <RhythmCanvas frame={currentFrame} />
             </div>
             
             {/* 图表区域 - 并排显示在3D场景下方，半透明背景 */}
@@ -976,6 +997,33 @@ export default function SimulatorPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* 运动指令日志 - 独立显示区域 */}
+        <div className="bg-white/5 rounded-lg border border-white/10 p-6 md:p-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-white">运动指令日志</h3>
+            <button
+              onClick={clearMotionLogs}
+              className="text-xs text-white/50 hover:text-white/70 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="bg-black/30 rounded-lg border border-white/10 p-4 h-[200px] overflow-y-auto space-y-1 font-mono text-sm">
+            {motionLogs.length === 0 ? (
+              <div className="text-white/30 text-center py-4">No motion logs yet</div>
+            ) : (
+              motionLogs.map((log, index) => (
+                <div key={index} className="text-white/80 break-all whitespace-pre-wrap border-b border-white/5 pb-1 last:border-0 last:pb-0">
+                  <span className="text-white/50 text-xs">
+                    {new Date(log.timestamp).toLocaleTimeString()}
+                  </span>
+                  <span className="ml-2">{log.message}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
