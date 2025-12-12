@@ -48,11 +48,11 @@ export interface Movement {
   distance: number; // 运动距离占最大单向行程的比率
   duration: number; // 本次运动时间
   rotation: number; // 旋转距离（圈数）
-  rotation_direction: number; // 0=顺时针, 1=逆时针
+  rotationDirection: number; // 0=顺时针, 1=逆时针 (protobufjs 自动转换为 camelCase)
 }
 
 export interface Primitive {
-  primitive_id: string;
+  primitiveId: string; // protobufjs 自动将 primitive_id 转换为 primitiveId
   movements: Movement[];
 }
 
@@ -61,7 +61,7 @@ export interface ConfigMessage {
 }
 
 export interface Unit {
-  primitive_id: string;
+  primitiveId: string; // protobufjs 自动将 primitive_id 转换为 primitiveId
   iteration: number; // 重复次数
   intensity: number; // 加速或减速系数
 }

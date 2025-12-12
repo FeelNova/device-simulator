@@ -244,8 +244,8 @@ function handleConfigMessage(config: ConfigMessage): void {
   
   primitivesCache.clear();
   config.primitives.forEach(primitive => {
-    if (primitive.primitive_id) {
-      primitivesCache.set(primitive.primitive_id, {
+    if (primitive.primitiveId) {
+      primitivesCache.set(primitive.primitiveId, {
         movements: primitive.movements || []
       });
     }

@@ -50,8 +50,8 @@ export class MotionPlanner {
 
     this.primitivesCache.clear();
     config.primitives.forEach(primitive => {
-      if (primitive.primitive_id) {
-        this.primitivesCache.set(primitive.primitive_id, primitive);
+      if (primitive.primitiveId) {
+        this.primitivesCache.set(primitive.primitiveId, primitive);
       }
     });
 
@@ -84,21 +84,21 @@ export class MotionPlanner {
     // 遍历所有units
     for (const unit of session.units) {
       console.log('[MotionPlanner] 处理 unit:', {
-        primitive_id: unit.primitive_id,
+        primitiveId: unit.primitiveId,
         iteration: unit.iteration,
         intensity: unit.intensity
       });
       
-      const primitive = this.primitivesCache.get(unit.primitive_id);
+      const primitive = this.primitivesCache.get(unit.primitiveId);
       
       if (!primitive) {
-        console.warn(`[MotionPlanner] 找不到primitive_id=${unit.primitive_id}`);
-        this.addLog(`SessionMessage: 跳过unit，找不到primitive_id=${unit.primitive_id}`);
+        console.warn(`[MotionPlanner] 找不到primitiveId=${unit.primitiveId}`);
+        this.addLog(`SessionMessage: 跳过unit，找不到primitiveId=${unit.primitiveId}`);
         continue; // 跳过找不到的primitive
       }
 
       console.log('[MotionPlanner] 找到primitive:', {
-        primitive_id: primitive.primitive_id,
+        primitiveId: primitive.primitiveId,
         movements_count: primitive.movements?.length || 0
       });
 
@@ -120,9 +120,9 @@ export class MotionPlanner {
           const targetStroke = Math.max(0, Math.min(1, (movement.distance || 0) * unitIntensity));
           
           // rotation: 应用intensity和方向
-          // rotation_direction: 0=逆时针(负值), 1=顺时针(正值)
+          // rotationDirection: 0=逆时针(负值), 1=顺时针(正值)
           const baseRotation = (movement.rotation || 0) * unitIntensity;
-          const targetRotation = movement.rotation_direction === 0 
+          const targetRotation = movement.rotationDirection === 0 
             ? -baseRotation  // 逆时针，使用负值
             : baseRotation;  // 顺时针，使用正值
 
@@ -132,7 +132,7 @@ export class MotionPlanner {
               distance: movement.distance,
               duration: movement.duration,
               rotation: movement.rotation,
-              rotation_direction: movement.rotation_direction
+              rotationDirection: movement.rotationDirection
             },
             movementStartTime,
             endTime,
@@ -151,7 +151,7 @@ export class MotionPlanner {
               rotation: currentRotation,
               intensity: unitIntensity,
               suck: 0.5, // 默认值
-              mode: `session_${unit.primitive_id}_iter${iter}`
+              mode: `session_${unit.primitiveId}_iter${iter}`
             }
           });
 
@@ -164,7 +164,7 @@ export class MotionPlanner {
               rotation: targetRotation,
               intensity: unitIntensity,
               suck: 0.5, // 默认值
-              mode: `session_${unit.primitive_id}_iter${iter}`
+              mode: `session_${unit.primitiveId}_iter${iter}`
             }
           });
 
