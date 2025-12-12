@@ -112,7 +112,7 @@ export class MotionPlanner {
         // 遍历primitive中的所有movements
         for (const movement of primitive.movements || []) {
           const movementDuration = (movement.duration || 0) * 1000; // 转换为毫秒
-          const startTime = currentTime;
+          const movementStartTime = currentTime;
           const endTime = currentTime + movementDuration;
 
           // 计算目标值（应用intensity倍率）
@@ -134,7 +134,7 @@ export class MotionPlanner {
               rotation: movement.rotation,
               rotation_direction: movement.rotation_direction
             },
-            startTime,
+            movementStartTime,
             endTime,
             currentStroke,
             targetStroke,
@@ -144,9 +144,9 @@ export class MotionPlanner {
 
           // 生成开始关键帧
           timeline.push({
-            timestamp: startTime,
+            timestamp: movementStartTime,
             frame: {
-              t: startTime,
+              t: movementStartTime,
               stroke: currentStroke,
               rotation: currentRotation,
               intensity: unitIntensity,
