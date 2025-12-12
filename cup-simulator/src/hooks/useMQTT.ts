@@ -27,7 +27,7 @@ interface UseMQTTOptions {
 
 export function useMQTT(options: UseMQTTOptions = {}) {
   const {
-    url = 'ws://www.feelnova-ai.com:8083/mqtt',
+    url = 'wss://www.feelnova-ai.com/mqtt/',
     username = 'admin',
     password = 'Nova#123',
     clientId = 'CupSimulator',

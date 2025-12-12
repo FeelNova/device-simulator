@@ -21,6 +21,7 @@ interface DebugMessage {
   data: any;
   clientId?: string;
   topic?: string;
+  binaryData?: Uint8Array | Buffer;
 }
 
 const MAX_DEBUG_MESSAGES = 100; // 最大消息数量
@@ -31,13 +32,14 @@ export default function SimulatorPage() {
   const [downstreamMessages, setDownstreamMessages] = useState<DebugMessage[]>([]);
   
   // MQTT 连接配置
-  const [brokerUrl, setBrokerUrl] = useState<string>('ws://www.feelnova-ai.com:8083/mqtt');
+  const [brokerUrl, setBrokerUrl] = useState<string>('wss://www.feelnova-ai.com/mqtt/');
   const [username, setUsername] = useState<string>('admin');
   const [password, setPassword] = useState<string>('Nova#123');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   
   // 设备注册
   const [deviceToken, setDeviceToken] = useState<string>('hw2020515');
+  const [isDeviceRegistered, setIsDeviceRegistered] = useState<boolean>(false);
   
   // 订阅状态
   const [subscribedTopic, setSubscribedTopic] = useState<string | null>(null);
@@ -65,6 +67,34 @@ export default function SimulatorPage() {
     setMqttLogs(prev => [log, ...prev].slice(0, 100)); // 保留最近100条日志
   }, []);
 
+  // 下载二进制数据函数
+  const downloadBinary = useCallback((binaryData: Uint8Array | Buffer, filename: string = 'message.bin') => {
+    // 处理 Buffer 到 Uint8Array 的转换，确保使用标准的 ArrayBuffer
+    let data: Uint8Array;
+    if (binaryData instanceof Buffer) {
+      // Buffer 转 Uint8Array
+      data = new Uint8Array(binaryData.length);
+      for (let i = 0; i < binaryData.length; i++) {
+        data[i] = binaryData[i];
+      }
+    } else {
+      data = binaryData;
+    }
+    // 创建一个新的 ArrayBuffer 并复制数据，避免 SharedArrayBuffer 的问题
+    const arrayBuffer = new ArrayBuffer(data.length);
+    const view = new Uint8Array(arrayBuffer);
+    view.set(data);
+    const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
   // 处理 MQTT 消息
   const handleMQTTMessage = useCallback(async (topic: string, message: Buffer) => {
     const timestamp = Date.now();
@@ -78,13 +108,11 @@ export default function SimulatorPage() {
           const DeviceCommand = root.lookupType('com.sexToy.proto.DeviceCommand');
           
           
-          // 把 buffer 的二进制内容（16进制表示）打印出来
-          console.log('Received Buffer hex:', message.toString('hex'));
+         
 
           const decoded = DeviceCommand.decode(message) as any;
-          // INSERT_YOUR_CODE
+         
           
-          console.log("[DeviceCommand MQTT] Decoded message:", decoded);
           // 直接访问 decoded 对象的字段（protobufjs 会将字段名转换为 camelCase）
           // protobufjs 解码后的对象字段名是 camelCase（deviceToken, commandType, commandData）
           const messageObj: any = {};
@@ -118,7 +146,8 @@ export default function SimulatorPage() {
             timestamp: timestamp,
             type: 'downstream' as const,
             data: messageObj,
-            topic: topic
+            topic: topic,
+            binaryData: message
           }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
 
           // 根据 commandType 控制 3D 动画
@@ -141,7 +170,8 @@ export default function SimulatorPage() {
             timestamp: timestamp,
             type: 'downstream' as const,
             data: { raw: hexString, error: 'Failed to decode DeviceCommand' },
-            topic: topic
+            topic: topic,
+            binaryData: message
           }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
         }
       } else {
@@ -153,7 +183,8 @@ export default function SimulatorPage() {
             timestamp: timestamp,
             type: 'downstream' as const,
             data: messageStr,
-            topic: topic
+            topic: topic,
+            binaryData: message
           }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
         } catch {
           const hexString = Array.from(message)
@@ -164,7 +195,8 @@ export default function SimulatorPage() {
             timestamp: timestamp,
             type: 'downstream' as const,
             data: { raw: hexString },
-            topic: topic
+            topic: topic,
+            binaryData: message
           }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
         }
       }
@@ -188,7 +220,12 @@ export default function SimulatorPage() {
     password: password,
     clientId: 'CupSimulator',
     onLog: handleMQTTLog,
-    onMessage: handleMQTTMessage
+    onMessage: handleMQTTMessage,
+    onDisconnect: () => {
+      // 断开连接时重置注册状态
+      setIsDeviceRegistered(false);
+      setSubscribedTopic(null);
+    }
   });
 
   // 清理调试消息，避免内存泄漏
@@ -290,7 +327,7 @@ export default function SimulatorPage() {
                       connectMQTT();
                     }
                   }}
-                  className={`w-full px-6 py-2 rounded-lg font-semibold text-sm transition-colors ${
+                  className={`w-full px-6 py-2 rounded-lg font-semibold text-sm transition-colors active:scale-95 active:opacity-80 ${
                     isMQTTConnected
                       ? 'bg-red-500/20 border border-red-500/50 text-red-200 hover:bg-red-500/30'
                       : 'bg-blue-500/20 border border-blue-500/50 text-blue-200 hover:bg-blue-500/30'
@@ -318,7 +355,7 @@ export default function SimulatorPage() {
                       value={deviceToken}
                       onChange={(e) => setDeviceToken(e.target.value)}
                       placeholder="hw2020515"
-                      disabled={isMQTTConnected}
+                      disabled={isDeviceRegistered}
                       className="flex-1 px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     <button
@@ -335,10 +372,10 @@ export default function SimulatorPage() {
 
                           // 创建消息对象
                           const message = {
-                            device_token: deviceToken,
-                            device_sn: 'CUP001',
-                            device_type: 'massager',
-                            register_time: Date.now()
+                            deviceToken: deviceToken,
+                            deviceSn: 'CUP001',
+                            deviceType: 'massager',
+                            registerTime: Date.now()
                           };
 
                           // 验证消息
@@ -349,16 +386,21 @@ export default function SimulatorPage() {
 
                           // 创建消息实例并序列化
                           const deviceRegisterMsg = DeviceRegister.create(message);
-                          const uint8Array = DeviceRegister.encode(deviceRegisterMsg).finish();
+                          const uint8Array = DeviceRegister.encode(deviceRegisterMsg).finish();                     
+
                           // 将 Uint8Array 转换为 Buffer（在浏览器环境中，mqtt.js 会处理）
                           const buffer = Buffer.from(uint8Array) as any;
 
+                          
                           // 发布消息
                           const topic = `device/register/${deviceToken}`;
                           // 从 MQTT 客户端获取 clientId，如果不可用则使用默认值
                           const currentClientId = (mqttClient as any)?.options?.clientId || 'CupSimulator';
                           publishMQTT(topic, buffer, { qos: 1 }, async (error?: Error) => {
                             if (!error) {
+                              // 标记设备已注册
+                              setIsDeviceRegistered(true);
+                              
                               // 添加到 Published 区域
                               setUpstreamMessages(prev => [{
                                 id: `${Date.now()}-${Math.random()}`,
@@ -366,7 +408,8 @@ export default function SimulatorPage() {
                                 type: 'upstream' as const,
                                 data: message,
                                 clientId: currentClientId,
-                                topic: topic
+                                topic: topic,
+                                binaryData: buffer
                               }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
 
                               // 注册成功后，订阅 device/command/{deviceToken} topic
@@ -385,8 +428,12 @@ export default function SimulatorPage() {
                           alert(`Failed to register device: ${(error as Error).message}`);
                         }
                       }}
-                      disabled={!isMQTTConnected || !deviceToken.trim()}
-                      className="px-6 py-2 bg-green-500/20 border border-green-500/50 text-green-200 rounded-lg hover:bg-green-500/30 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={!isMQTTConnected || !deviceToken.trim() || isDeviceRegistered}
+                      className={`px-6 py-2 rounded-lg transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 active:opacity-80 ${
+                        isDeviceRegistered
+                          ? 'bg-gray-500/20 border border-gray-500/50 text-gray-400'
+                          : 'bg-green-500/20 border border-green-500/50 text-green-200 hover:bg-green-500/30'
+                      }`}
                     >
                       Register
                     </button>
@@ -431,35 +478,16 @@ export default function SimulatorPage() {
 
                           // 创建消息实例并序列化
                           const deviceCommandMsg = DeviceCommand.create(message);
-
-                          
-                          console.log("DeviceCommand.fields", DeviceCommand.fields);
-                          console.log("keys in created object:", Object.keys(deviceCommandMsg));
-                           //调试日志202012120220
-
-                          // 添加调试日志：检查 create 后的对象
-                          console.log('[DeviceCommand] Original message:', message);
-                        
-                          console.log('[DeviceCommand] After create - full object:', deviceCommandMsg);
-                         
+                                                  
                           const uint8Array = DeviceCommand.encode(deviceCommandMsg).finish();
-                          console.log(Buffer.from(uint8Array).toString("hex"));
-                          console.log('[DeviceCommand] After encode - full object:', deviceCommandMsg);
-
-                          
-                          // 先尝试直接用 uint8Array 解码，看看是否正常
-                          const decodedFromUint8 = DeviceCommand.decode(uint8Array) as any;
-                        
-                          console.log('[DeviceCommand] Decoded from uint8Array - timestamp:', decodedFromUint8.timestamp);
+                                           
      
                           // 将 Uint8Array 转换为 Buffer
                           const buffer = Buffer.from(uint8Array) as any;
                     
                           
                           const decoded = DeviceCommand.decode(buffer) as any;
-                          console.log("[DeviceCommand MQTT] Decoded message to be sent:", decoded);
                           
-
                           // 发布消息
                           const topic = `device/command/${deviceToken}`;
                           // 从 MQTT 客户端获取 clientId，如果不可用则使用默认值
@@ -473,7 +501,8 @@ export default function SimulatorPage() {
                                 type: 'upstream' as const,
                                 data: message,
                                 clientId: currentClientId,
-                                topic: topic
+                                topic: topic,
+                                binaryData: buffer
                               }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
                             }
                           });
@@ -483,7 +512,7 @@ export default function SimulatorPage() {
                         }
                       }}
                       disabled={!isMQTTConnected || !deviceToken.trim()}
-                      className="flex-1 px-6 py-2 bg-green-500/20 border border-green-500/50 text-green-200 rounded-lg hover:bg-green-500/30 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 px-6 py-2 bg-green-500/20 border border-green-500/50 text-green-200 rounded-lg hover:bg-green-500/30 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 active:opacity-80"
                     >
                       Start
                     </button>
@@ -511,7 +540,7 @@ export default function SimulatorPage() {
                             commandData: new Uint8Array(),
                             timestamp: Date.now()
                           };
-                          // command_data 是可选的，不设置时不会包含在编码中
+                          // commandData 是可选的，不设置时不会包含在编码中
 
                           // 验证消息
                           const errMsg = DeviceCommand.verify(message);
@@ -538,7 +567,8 @@ export default function SimulatorPage() {
                                 type: 'upstream' as const,
                                 data: message,
                                 clientId: currentClientId,
-                                topic: topic
+                                topic: topic,
+                                binaryData: buffer
                               }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
                             }
                           });
@@ -548,7 +578,7 @@ export default function SimulatorPage() {
                         }
                       }}
                       disabled={!isMQTTConnected || !deviceToken.trim()}
-                      className="flex-1 px-6 py-2 bg-red-500/20 border border-red-500/50 text-red-200 rounded-lg hover:bg-red-500/30 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 px-6 py-2 bg-red-500/20 border border-red-500/50 text-red-200 rounded-lg hover:bg-red-500/30 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 active:opacity-80"
                     >
                       Stop
                     </button>
@@ -567,7 +597,7 @@ export default function SimulatorPage() {
               <button
                 onClick={isRunning ? stop : start}
                 disabled={false}
-                className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all whitespace-nowrap shadow-lg ${
+                className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all whitespace-nowrap shadow-lg active:scale-95 active:opacity-80 ${
                   isRunning
                     ? 'bg-red-500/40 border-2 border-red-400 text-white hover:bg-red-500/50'
                     : 'bg-blue-500/30 border-2 border-blue-400/60 text-white hover:bg-blue-500/40'
@@ -681,6 +711,16 @@ export default function SimulatorPage() {
                           Topic: <span className="text-white/80">{msg.topic}</span>
                         </div>
                       )}
+                      {msg.binaryData && (
+                        <div className="mb-1">
+                          <button
+                            onClick={() => downloadBinary(msg.binaryData!, 'message.bin')}
+                            className="text-xs text-blue-400 hover:text-blue-300 transition-colors underline"
+                          >
+                            Download message.bin
+                          </button>
+                        </div>
+                      )}
                       <div className="text-green-400 break-all whitespace-pre-wrap">
                         {JSON.stringify(msg.data, null, 2)}
                       </div>
@@ -713,6 +753,16 @@ export default function SimulatorPage() {
                       {msg.topic && (
                         <div className="text-white/60 mb-1">
                           Topic: <span className="text-white/80">{msg.topic}</span>
+                        </div>
+                      )}
+                      {msg.binaryData && (
+                        <div className="mb-1">
+                          <button
+                            onClick={() => downloadBinary(msg.binaryData!, 'message.bin')}
+                            className="text-xs text-blue-400 hover:text-blue-300 transition-colors underline"
+                          >
+                            Download message.bin
+                          </button>
                         </div>
                       )}
                       <div className="text-blue-400 break-all whitespace-pre-wrap">
