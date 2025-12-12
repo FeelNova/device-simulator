@@ -185,15 +185,21 @@ export async function decodeDeviceCommand(buffer: Buffer | Uint8Array): Promise<
  * @returns 解码后的 DeviceMotionMessage
  */
 export async function decodeDeviceMotionMessage(buffer: Uint8Array): Promise<DeviceMotionMessage> {
+  console.log('[Decoder] decodeDeviceMotionMessage 开始');
+  console.log('[Decoder] buffer length:', buffer.length);
+  console.log('[Decoder] buffer (hex):', Array.from(buffer.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+  
   await initProtobuf();
   
   if (!DeviceMotionMessageType) {
+    console.error('[Decoder] Protobuf schema not initialized');
     throw new Error('Protobuf schema not initialized');
   }
 
   try {
     // 解码消息
     const message = DeviceMotionMessageType.decode(buffer);
+    console.log('[Decoder] 解码成功，原始message:', message);
     
     // 转换为普通对象
     const decoded = DeviceMotionMessageType.toObject(message, {
@@ -205,6 +211,19 @@ export async function decodeDeviceMotionMessage(buffer: Uint8Array): Promise<Dev
       objects: true,
       oneofs: true
     });
+
+    console.log('[Decoder] 转换为对象后的 decoded:', decoded);
+    console.log('[Decoder] decoded.body:', decoded.body);
+    
+    if (decoded.body) {
+      if (decoded.body.config) {
+        console.log('[Decoder] 检测到 ConfigMessage, primitives数量:', decoded.body.config.primitives?.length || 0);
+      } else if (decoded.body.session) {
+        console.log('[Decoder] 检测到 SessionMessage, units数量:', decoded.body.session.units?.length || 0);
+      } else if (decoded.body.control) {
+        console.log('[Decoder] 检测到 ControlMessage, command:', decoded.body.control.command);
+      }
+    }
 
     return decoded as DeviceMotionMessage;
   } catch (error) {
@@ -232,70 +251,15 @@ function handleConfigMessage(config: ConfigMessage): void {
 }
 
 /**
- * 处理 SessionMessage：根据 units 生成运动数据
+ * 处理 SessionMessage：简化版本，不再生成单帧数据
+ * 时间线生成已移至 motionPlanner
  * @param session SessionMessage
- * @returns RhythmFrame 数据
+ * @returns null，表示需要由motionPlanner生成时间线
  */
-function handleSessionMessage(session: SessionMessage): RhythmFrame {
-  const now = Date.now();
-  
-  if (!session.units || session.units.length === 0) {
-    // 如果没有 units，返回默认值
-    return {
-      t: now,
-      stroke: 0.5,
-      rotation: 0,
-      intensity: 0.5,
-      suck: 0.5,
-      mode: 'session'
-    };
-  }
-
-  // 取第一个 unit 作为当前运动（简化处理）
-  const unit = session.units[0];
-  const intensity = unit.intensity || 1.0;
-  
-  // 查找对应的 primitive
-  const primitive = primitivesCache.get(unit.primitive_id);
-  
-  if (primitive && primitive.movements && primitive.movements.length > 0) {
-    // 取第一个 movement 作为当前运动（简化处理）
-    const movement = primitive.movements[0];
-    
-    // 计算 stroke（基于 direction 和 distance）
-    // direction: 0=向下, 1=向上
-    // distance: 0-1 之间的比率
-    const stroke = movement.direction === 1 ? movement.distance : 1 - movement.distance;
-    
-    // 计算 rotation（基于 rotation 和 rotation_direction）
-    // rotation: 圈数
-    // rotation_direction: 0=顺时针, 1=逆时针
-    const rotation = movement.rotation_direction === 0 
-      ? movement.rotation 
-      : -movement.rotation;
-    
-    // suck 暂时使用默认值（0.5）
-    const suck = 0.5;
-    
-    return {
-      t: now,
-      stroke: Math.max(0, Math.min(1, stroke)),
-      rotation: Math.max(-1, Math.min(1, rotation)),
-      intensity: Math.max(0, Math.min(1, intensity)),
-      suck,
-      mode: `session_${unit.primitive_id}`
-    };
-  }
-  
-  // 如果没有找到对应的 primitive，使用 intensity 生成简单数据
-  return {
-    t: now,
-    stroke: 0.5,
-    rotation: 0,
-    intensity: Math.max(0, Math.min(1, intensity)),
-    suck: 0.5,
-    mode: `session_${unit.primitive_id || 'unknown'}`
-  };
+function handleSessionMessage(session: SessionMessage): RhythmFrame | null {
+  // SessionMessage 的时间线生成已移至 motionPlanner
+  // 这里返回 null，由调用方使用 motionPlanner 生成完整时间线
+  return null;
 }
 
 /**

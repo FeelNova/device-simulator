@@ -10,6 +10,7 @@ import { useSimulator } from '@/hooks/useSimulator';
 import { useMQTT, MQTTLog } from '@/hooks/useMQTT';
 import * as protobuf from 'protobufjs';
 import { decodeDeviceMotionMessage } from '@/lib/protobuf/decoder';
+import { DeviceMotionMessage } from '@/lib/protobuf/types';
 import RhythmCanvas from '@/components/RhythmCanvas';
 import StrokeTimelineChart from '@/components/simulator/StrokeTimelineChart';
 import RotationTimelineChart from '@/components/simulator/RotationTimelineChart';
@@ -67,8 +68,12 @@ export default function SimulatorPage() {
     rotationHistory,
     strokeVelocity,
     rotationVelocity,
+    motionLogs,
     start,
-    stop
+    stop,
+    processMotionCommand,
+    queueCommand,
+    clearMotionLogs
   } = useSimulator({
     useWebSocket: false, // 默认使用 mock 模式，可以通过环境变量或配置启用
     wsUrl: process.env.NEXT_PUBLIC_WS_URL
@@ -232,13 +237,18 @@ export default function SimulatorPage() {
             // commandData 是 bytes，转换为数组以便 JSON 序列化
             messageObj.commandData = Array.from(decoded.commandData);
             
+            console.log('[MQTT] 收到消息，commandType:', decoded.commandType);
+            console.log('[MQTT] commandData length:', decoded.commandData.length);
+            
             // 如果 commandType=3 (COMMAND_TASK)，尝试反序列化 commandData
             if (decoded.commandType === 3) {
+              console.log('[MQTT] 开始解码 DeviceMotionMessage...');
               try {
                 const decodedMotion = await decodeDeviceMotionMessage(decoded.commandData);
+                console.log('[MQTT] DeviceMotionMessage 解码成功:', decodedMotion);
                 messageObj.decodedCommandData = decodedMotion;
               } catch (error) {
-                console.error('Failed to decode DeviceMotionMessage:', error);
+                console.error('[MQTT] DeviceMotionMessage 解码失败:', error);
                 // 反序列化失败时，不添加 decodedCommandData 字段
               }
             }
@@ -271,10 +281,62 @@ export default function SimulatorPage() {
           const commandType = typeof messageObj.commandType === 'number' 
             ? messageObj.commandType 
             : (messageObj.commandType || 0);
+          
           if (commandType === 1) { // COMMAND_START
             start();
           } else if (commandType === 2) { // COMMAND_STOP
             stop();
+          } else if (commandType === 3) { // COMMAND_TASK
+            console.log('[MQTT] 收到 COMMAND_TASK=3 消息');
+            console.log('[MQTT] decodedCommandData:', messageObj.decodedCommandData);
+            console.log('[MQTT] isRunning:', isRunning);
+            
+            // 处理详细任务控制指令
+            if (messageObj.decodedCommandData) {
+              const decoded = messageObj.decodedCommandData;
+              const bodyType = decoded.body; // "config" | "session" | "control"
+              
+              // 添加调试日志
+              console.log('[MQTT] decodedCommandData.body (type):', bodyType);
+              console.log('[MQTT] decodedCommandData.config:', decoded.config);
+              console.log('[MQTT] decodedCommandData.session:', decoded.session);
+              console.log('[MQTT] decodedCommandData.control:', decoded.control);
+              
+              // 根据 body 字符串值，从顶层字段获取实际数据
+              const motionMessage: DeviceMotionMessage = {
+                body: bodyType === 'config' && decoded.config
+                  ? { config: decoded.config }
+                  : bodyType === 'session' && decoded.session
+                  ? { session: decoded.session }
+                  : bodyType === 'control' && decoded.control
+                  ? { control: decoded.control }
+                  : undefined
+              };
+              
+              console.log('[MQTT] 构建的 motionMessage:', motionMessage);
+              console.log('[MQTT] motionMessage.body:', motionMessage.body);
+              
+              if (!motionMessage.body) {
+                console.warn('[MQTT] 无法构建 motionMessage，body 为空');
+                return;
+              }
+              
+              // 如果当前有运动在执行，将指令加入队列；否则立即执行
+              if (isRunning) {
+                console.log('[MQTT] 当前有运动在执行，将指令加入队列');
+                queueCommand(motionMessage);
+              } else {
+                console.log('[MQTT] 当前无运动，立即执行指令');
+                processMotionCommand(motionMessage);
+                // 如果生成了时间线，自动启动运动
+                if (motionMessage.body?.session) {
+                  console.log('[MQTT] 检测到 SessionMessage，自动启动运动');
+                  start();
+                }
+              }
+            } else {
+              console.warn('[MQTT] decodedCommandData 为空，无法处理运动指令');
+            }
           }
         } catch (decodeError) {
           // 解码失败，显示原始消息
@@ -411,16 +473,28 @@ export default function SimulatorPage() {
       // 发布消息
       const topic = `device/command/${deviceToken}`;
       const currentClientId = (mqttClient as any)?.options?.clientId || 'CupSimulator';
+      
+      console.log('[SendTask] 准备发送任务指令');
+      console.log('[SendTask] commandType:', message.commandType);
+      console.log('[SendTask] commandData length:', message.commandData?.length || 0);
+      console.log('[SendTask] topic:', topic);
+      
       publishMQTT(topic, buffer, { qos: 1 }, async (error?: Error) => {
         if (!error) {
+          console.log('[SendTask] MQTT 发布成功');
+          
           // 如果 commandType=3 且 commandData 不为空，尝试反序列化
           let decodedCommandData = undefined;
           if (message.commandType === 3 && message.commandData && message.commandData.length > 0) {
             try {
+              console.log('[SendTask] 开始解码 DeviceMotionMessage, 数据长度:', message.commandData.length);
               decodedCommandData = await decodeDeviceMotionMessage(message.commandData);
+              console.log('[SendTask] 解码成功:', decodedCommandData);
             } catch (error) {
-              console.error('Failed to decode DeviceMotionMessage:', error);
+              console.error('[SendTask] 解码失败:', error);
             }
+          } else {
+            console.log('[SendTask] 跳过解码 (commandType不是3或commandData为空)');
           }
           
           // 添加到 Published 区域
@@ -865,7 +939,7 @@ export default function SimulatorPage() {
                     : 'bg-blue-500/30 border-2 border-blue-400/60 text-white hover:bg-blue-500/40'
                 }`}
               >
-                auto run
+                {isRunning ? 'stop' : 'auto run'}
               </button>
             </div>
 
@@ -1038,6 +1112,33 @@ export default function SimulatorPage() {
           </div>
         </div>
 
+        {/* 运动指令日志 - 独立显示区域 */}
+        <div className="bg-white/5 rounded-lg border border-white/10 p-6 md:p-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-white">运动指令日志</h3>
+            <button
+              onClick={clearMotionLogs}
+              className="text-xs text-white/50 hover:text-white/70 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="bg-black/30 rounded-lg border border-white/10 p-4 h-[200px] overflow-y-auto space-y-1">
+            {motionLogs.length === 0 ? (
+              <div className="text-xs text-white/30 text-center py-4">No motion logs yet</div>
+            ) : (
+              motionLogs.map((log, index) => (
+                <div key={index} className="text-xs text-white/70 font-mono border-b border-white/5 pb-2 last:border-0 last:pb-0">
+                  <span className="text-white/50">
+                    [{new Date(log.timestamp).toLocaleTimeString()}]
+                  </span>{' '}
+                  {log.message}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
         {/* MQTT Logs - 独立显示区域 */}
         <div className="bg-white/5 rounded-lg border border-white/10 p-6 md:p-8">
           <div className="flex items-center justify-between mb-4">
@@ -1072,4 +1173,3 @@ export default function SimulatorPage() {
     </div>
   );
 }
-
