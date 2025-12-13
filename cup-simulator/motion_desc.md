@@ -1,8 +1,7 @@
-现在需要对3d动画的运动逻辑做一些改动：
+DeviceCommand消息中的commandData字段包含详细任务控制指令，详细任务指令是一个oneof body类型的消息，其中：
 
-当mqtt订阅接收到COMMAND_TASK为3的DeviceCommand的时候，表示收到了详细任务控制指令；
-
-如果对该消息的commandData字段反序列化成功，则分析饭序列后的详细任务控制指令，详细任务指令是oneof body消息：
+全局控制：
+  1. 控制频率或控制周期：基于硬件现状以及实际
 
 ConfigMessage类型的消息体，代表手法配置说明，语义解析如下：
 
@@ -20,11 +19,11 @@ ConfigMessage类型的消息体，代表手法配置说明，语义解析如下�
      
      1 = 向下
    
-   - distance：垂直运动距离（**归一化值**，表示一次完整行程的比例）
+   - distance：垂直运动距离（**归一化值**，表示一次完整单方向（上或下）行程的比例）
    
    - duration：该 movement 的持续时间（单位：秒）
    
-   - rotation：在 duration 内完成的旋转圈数（1.0 = 完整一圈）
+   - rotation：旋转速度（1.0 = 完整一圈）
    
    - rotation_direction：旋转方向
      
@@ -33,9 +32,15 @@ ConfigMessage类型的消息体，代表手法配置说明，语义解析如下�
      1 = 顺时针
    
    **语义说明**
+   
    - distance除以duration相当于速度，也就是在这个duration内以某个速度垂直运动
+   
    - rotaion除以duration相当于转速，也就是在这个duration内以某个速度转动
-
+     
+     - `distance / duration` = 垂直运动速度（完整行程/秒）
+     - `rotation / duration` = 旋转速度（圈数/秒）
+     - 运动应该是**全行程（0-1）的上下往复运动**
+   
    - movements 数组整体定义了该 primitive_id 对应的**完整手法运动模板**
    
    - movements 必须 **按数组顺序依次执行**
@@ -138,7 +143,6 @@ message ControlMessage {
 - 指令具有**即时生效**语义
 
 - 不改变 Session 的结构，仅影响执行状态或参数    
-
 
 <!--
 现在需要对3d动画的运动逻辑做一些改动：

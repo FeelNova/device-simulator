@@ -15,9 +15,9 @@ export default function StrokeTimelineChart({ data }: StrokeTimelineChartProps) 
     <div className="w-full h-full">
       <TimelineChart
         data={data}
-        label="Stroke"
+        label="Stroke Speed"
         minValue={0}
-        maxValue={1}
+        maxValue={2}
         color="#4a8ab8"
         timeWindow={10000}
       />

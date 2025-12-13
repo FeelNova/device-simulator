@@ -68,7 +68,11 @@ export default function SimulatorPage() {
     rotationHistory,
     strokeVelocity,
     rotationVelocity,
+    currentStrokeSpeed,
     motionLogs,
+    controlInterval,
+    setControlInterval,
+    isMotionCommandMode,
     start,
     stop,
     processMotionCommand,
@@ -926,9 +930,29 @@ export default function SimulatorPage() {
           {/* 3D 可视化 - 右侧 */}
           <div className="bg-white/5 rounded-lg border border-white/10 p-6 md:p-8 flex flex-col">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl md:text-2xl text-white font-medium">
-                3D Device Visualization
-              </h2>
+              <div className="flex items-center gap-4">
+                <h2 className="text-xl md:text-2xl text-white font-medium">
+                  3D Device Visualization
+                </h2>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-white/60">Control Interval (s):</label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="10"
+                    step="0.1"
+                    value={controlInterval / 1000}
+                    onChange={(e) => {
+                      const seconds = parseFloat(e.target.value);
+                      if (!isNaN(seconds) && seconds >= 5) {
+                        setControlInterval(seconds * 1000);
+                      }
+                    }}
+                    disabled={isRunning}
+                    className="w-16 px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
               <button
                 onClick={isRunning ? stop : start}
                 disabled={false}
@@ -938,7 +962,7 @@ export default function SimulatorPage() {
                     : 'bg-blue-500/30 border-2 border-blue-400/60 text-white hover:bg-blue-500/40'
                 }`}
               >
-                auto run
+                {isRunning ? "stop" : "auto run"}
               </button>
             </div>
 
@@ -980,7 +1004,7 @@ export default function SimulatorPage() {
                 <div>
                   <span className="text-white/50">stroke:</span>
                   <span className="text-white ml-2">
-                    {Math.abs(strokeVelocity).toFixed(2)}/s
+                    {Math.abs(currentStrokeSpeed || strokeVelocity).toFixed(2)}/s
                   </span>
                 </div>
                 <div>

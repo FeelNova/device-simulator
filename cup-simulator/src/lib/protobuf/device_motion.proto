@@ -35,7 +35,7 @@ message Movement {
   float distance = 2; 
   // 本次运动时间 (float)
   float duration = 3;
-  // 旋转距离，多少圈 (float)
+  // 旋转速度，多少圈 (float)/秒
   float rotation = 4; 
   RotationDirection rotation_direction = 5;
 }

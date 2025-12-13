@@ -23,6 +23,9 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
   const [rotationHistory, setRotationHistory] = useState<Array<{ timestamp: number; value: number }>>([]);
   const [strokeVelocity, setStrokeVelocity] = useState<number>(0);
   const [rotationVelocity, setRotationVelocity] = useState<number>(0);
+  const [currentStrokeSpeed, setCurrentStrokeSpeed] = useState<number>(0); // 当前 keyframe 的 strokeSpeed
+  const [controlInterval, setControlInterval] = useState<number>(2000); // 默认 2 秒（毫秒）
+  const [isMotionCommandMode, setIsMotionCommandMode] = useState<boolean>(false);
 
   // 运动规划相关状态
   const motionPlannerRef = useRef<MotionPlanner>(new MotionPlanner());
@@ -33,6 +36,8 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
   const pausedAtTimeRef = useRef<number | null>(null);
   const timelineStartTimeRef = useRef<number | null>(null);
   const processMotionCommandRef = useRef<((command: DeviceMotionMessage) => void) | null>(null);
+  const currentUnitIndexRef = useRef<number | null>(null); // 跟踪当前执行的 unit 索引
+  const currentSessionRef = useRef<{ units: Array<{ primitiveId?: string; iteration?: number; intensity?: number }> } | null>(null); // 保存当前 session 信息
 
   const animationFrameRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
@@ -117,19 +122,58 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     // 如果有时间线，使用时间线生成帧
     if (motionTimeline.length > 0 && timelineStartTimeRef.current !== null) {
       const relativeTime = now - timelineStartTimeRef.current;
-      const frame = motionPlannerRef.current.getFrameAtTime(
+      const keyframeResult = motionPlannerRef.current.getKeyframeAtTime(
         motionTimeline,
         now,
         timelineStartTimeRef.current
       );
       
-      if (frame) {
+      if (keyframeResult) {
+        const frame = keyframeResult.frame;
+        const strokeSpeed = keyframeResult.strokeSpeed ?? strokeVelocity;
+        
+        // 检测 unit 切换（包括第一个 unit）
+        // 注意：unitIndex 可能是 0，所以需要检查 !== null 和 !== undefined
+        const newUnitIndex = keyframeResult.unitIndex;
+        if (newUnitIndex !== undefined && newUnitIndex !== null && newUnitIndex !== currentUnitIndexRef.current) {
+          currentUnitIndexRef.current = newUnitIndex;
+          
+          // 添加日志：执行到新的 unit
+          if (currentSessionRef.current && currentSessionRef.current.units[newUnitIndex]) {
+            const unit = currentSessionRef.current.units[newUnitIndex];
+            const logMessage = `Executing Unit[${newUnitIndex}]: {"primitive_id": "${unit.primitiveId}", "iteration": ${unit.iteration || 1}, "intensity": ${unit.intensity || 1.0}}`;
+            motionPlannerRef.current.addLogMessage(logMessage);
+            // 立即更新日志，确保UI能显示
+            const updatedLogs = motionPlannerRef.current.getLogs();
+            setMotionLogs(updatedLogs);
+            console.log('[Motion] Unit切换检测:', {
+              newUnitIndex,
+              primitiveId: unit.primitiveId,
+              iteration: unit.iteration,
+              intensity: unit.intensity,
+              logMessage
+            });
+          } else {
+            console.warn('[Motion] 无法找到unit信息:', {
+              newUnitIndex,
+              sessionUnits: currentSessionRef.current?.units,
+              keyframeResult
+            });
+          }
+        }
+        
+        // 更新当前 strokeSpeed（用于显示）
+        if (keyframeResult.strokeSpeed !== undefined) {
+          setCurrentStrokeSpeed(keyframeResult.strokeSpeed);
+        }
+        
         // 每100帧打印一次日志（避免日志过多）
         if (Math.floor(relativeTime / 100) % 100 === 0) {
           console.log('[Motion] 生成帧 - relativeTime:', relativeTime, 'frame:', {
             stroke: frame.stroke.toFixed(3),
             rotation: frame.rotation.toFixed(3),
-            intensity: frame.intensity.toFixed(3)
+            intensity: frame.intensity.toFixed(3),
+            strokeSpeed: strokeSpeed.toFixed(3)
           });
         }
         setCurrentFrame(frame);
@@ -148,9 +192,9 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         previousFrameRef.current = frame;
         previousTimestampRef.current = now;
         
-        // 记录历史数据
+        // 记录历史数据 - strokeHistory 存储速度值而不是位置值
         setStrokeHistory(prev => {
-          const newHistory = [...prev, { timestamp: now, value: frame.stroke }];
+          const newHistory = [...prev, { timestamp: now, value: strokeSpeed }];
           return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
         });
         setRotationHistory(prev => {
@@ -210,6 +254,8 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     console.log('[Motion] command.body:', command.body);
     
     const planner = motionPlannerRef.current;
+    // 设置控制间隔
+    planner.setControlInterval(controlInterval);
     
     if (command.body?.config) {
       console.log('[Motion] 处理 ConfigMessage');
@@ -220,6 +266,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
       console.log('[Motion] 处理 SessionMessage');
       console.log('[Motion] session:', command.body.session);
       // SessionMessage: 停止当前运动，生成新时间线
+      setIsMotionCommandMode(true); // 设置为详细运动规划指令模式
       setMotionState(prevState => {
         if (prevState === MotionState.RUNNING) {
           return MotionState.IDLE;
@@ -238,6 +285,20 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         setMotionState(MotionState.RUNNING);
         console.log('[Motion] 时间线已设置，motionState 设为 RUNNING');
         console.log('[Motion] timelineStartTime:', timelineStartTimeRef.current);
+        
+        // 保存 session 信息，用于 unit 切换日志
+        currentSessionRef.current = {
+          units: command.body.session.units?.map(unit => ({
+            primitiveId: unit.primitiveId,
+            iteration: unit.iteration,
+            intensity: unit.intensity
+          })) || []
+        };
+        currentUnitIndexRef.current = null; // 重置 unit 索引，确保第一个 unit 也能被检测到
+        console.log('[Motion] 保存session信息:', {
+          unitsCount: currentSessionRef.current.units.length,
+          units: currentSessionRef.current.units
+        });
         
         // 如果当前没有运行，启动运动
         setIsRunning(prev => {
@@ -288,7 +349,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
           break;
       }
     }
-  }, []);
+  }, [controlInterval]);
 
   // 更新ref
   useEffect(() => {
@@ -310,6 +371,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     setRotationHistory([]);
     setStrokeVelocity(0);
     setRotationVelocity(0);
+    setCurrentStrokeSpeed(0);
     previousFrameRef.current = null;
     previousTimestampRef.current = null;
 
@@ -329,6 +391,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
 
   // 停止模拟
   const stop = useCallback(() => {
+    setIsMotionCommandMode(false); // 退出详细运动规划指令模式
     setIsRunning(false);
     setMotionState(MotionState.IDLE);
     
@@ -340,6 +403,8 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     startTimeRef.current = null;
     timelineStartTimeRef.current = null;
     pausedAtTimeRef.current = null;
+    currentUnitIndexRef.current = null;
+    currentSessionRef.current = null;
     disconnectWS();
     setCurrentFrame(null);
     
@@ -348,6 +413,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     setRotationHistory([]);
     setStrokeVelocity(0);
     setRotationVelocity(0);
+    setCurrentStrokeSpeed(0);
     previousFrameRef.current = null;
     previousTimestampRef.current = null;
   }, [disconnectWS]);
@@ -422,7 +488,11 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     rotationHistory,
     strokeVelocity,
     rotationVelocity,
+    currentStrokeSpeed,
     motionLogs,
+    controlInterval,
+    setControlInterval,
+    isMotionCommandMode,
     start,
     stop,
     processMotionCommand,
