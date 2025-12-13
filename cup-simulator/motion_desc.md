@@ -1,7 +1,13 @@
 DeviceCommand消息中的commandData字段包含详细任务控制指令，详细任务指令是一个oneof body类型的消息，其中：
 
 全局控制：
-  1. 控制频率或控制周期：基于硬件现状以及实际
+  1. 控制频率或控制周期：基于硬件现状以及期望效果，暂定控制周期为最小2秒一次，也就是最小运动单元的切换为2秒，举例，一个primitive中movement到下一个movement到切换为一个控制周期一次，例如下面的定义：
+         {"direction": 0, "distance": 0.2, "duration": 0.3, "rotation": 1.0, "rotation_direction": 1},
+          {"direction": 0, "distance": 0.3, "duration": 0.3, "rotation": 1.0, "rotation_direction": 1},
+  意味着 0.2/0.3的往复速度切换到0.3/0.3最少间隔2秒；
+  2.rotaion直接代表圈速，不根据duration值做二次计算；
+  以上意味着控制精度在不在一个行程（单向）内进行，直观来说，类似”三快一慢，二快一慢三快2慢“这种节奏，以及定义了快有多快，慢有多慢，而不用在一次行程内精细到三分之一多快，三分之二多慢这个粒度，也更利于调试；
+
 
 ConfigMessage类型的消息体，代表手法配置说明，语义解析如下：
 
