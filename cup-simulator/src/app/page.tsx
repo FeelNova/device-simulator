@@ -447,16 +447,57 @@ export default function SimulatorPage() {
       const sendHeartbeat = async () => {
         try {
           const now = Date.now();
-          const heartbeatMessage: DeviceHeartbeat = {
-            device_token: deviceToken,
-            last_online_time: now,
-            battery_level: 100, // 模拟满电
-            heartbeat_time: now
+          
+          // 使用 protobufjs 动态方式加载和编码
+          const root = await protobuf.load('/device.proto');
+          const DeviceHeartbeat = root.lookupType('com.sexToy.proto.DeviceHeartbeat');
+
+          // 创建消息对象
+          const message = {
+            deviceToken: deviceToken,
+            lastOnlineTime: now,
+            batteryLevel: 100, // 模拟满电
+            heartbeatTime: now
           };
 
-          const buffer = await encodeDeviceHeartbeat(heartbeatMessage);
+          // 验证消息
+          const errMsg = DeviceHeartbeat.verify(message);
+          if (errMsg) {
+            throw new Error(`Invalid heartbeat message: ${errMsg}`);
+          }
+
+          // 创建消息实例并序列化
+          const heartbeatMsg = DeviceHeartbeat.create(message);
+          const uint8Array = DeviceHeartbeat.encode(heartbeatMsg).finish();
+
+          // 将 Uint8Array 转换为 Buffer
+          const buffer = Buffer.from(uint8Array) as any;
           const topic = `device/heartbeat/${deviceToken}`;
           const currentClientId = (mqttClient as any)?.options?.clientId || uniqueClientId;
+          
+          // 在这里用浏览器日志跟踪看心跳消息是否被正确编码
+          console.log('[Heartbeat][Debug] Encoded Heartbeat Message:', {
+            proto: message,
+            encoded: buffer,
+            encodedHex: Array.from(new Uint8Array(buffer)).map((b: number) => b.toString(16).padStart(2, '0')).join(' ')
+          });
+          
+          // 这里用日志跟踪下看对buffer直接解码出来是什么内容，确定protobuf对这个消息可以解码成功
+          try {
+            const decodedObj = DeviceHeartbeat.decode(buffer);
+            const decodedPlain = DeviceHeartbeat.toObject(decodedObj, {
+              longs: String,
+              enums: String,
+              bytes: String,
+              defaults: true,
+              arrays: true,
+              objects: true,
+              oneofs: true
+            });
+            console.log('[Heartbeat][Debug] Decoded from buffer:', decodedPlain);
+          } catch (e) {
+            console.error('[Heartbeat][Debug] 解码 heartbeat buffer 失败:', e);
+          }
 
           publishMQTT(topic, buffer, { qos: 1 }, (error?: Error) => {
             if (!error) {
@@ -465,7 +506,7 @@ export default function SimulatorPage() {
                 id: `heartbeat-${Date.now()}-${Math.random()}`,
                 timestamp: Date.now(),
                 type: 'upstream' as const,
-                data: heartbeatMessage,
+                data: message,
                 clientId: currentClientId,
                 topic: topic,
                 binaryData: buffer,

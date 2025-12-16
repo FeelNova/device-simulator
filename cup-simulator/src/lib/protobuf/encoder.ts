@@ -159,3 +159,32 @@ export async function encodeDeviceCommand(message: DeviceCommand): Promise<Buffe
   }
 }
 
+/**
+ * 解码 DeviceHeartbeat 消息
+ * @param buffer Protobuf 编码后的 Buffer
+ * @returns 解码后的 DeviceHeartbeat 对象
+ */
+export async function decodeDeviceHeartbeat(buffer: Buffer | Uint8Array): Promise<DeviceHeartbeat> {
+  await initProtobuf();
+  
+  if (!DeviceHeartbeatType) {
+    throw new Error('Protobuf schema not initialized');
+  }
+
+  try {
+    const decoded = DeviceHeartbeatType.decode(buffer);
+    return DeviceHeartbeatType.toObject(decoded, {
+      longs: String,
+      enums: String,
+      bytes: String,
+      defaults: true,
+      arrays: true,
+      objects: true,
+      oneofs: true
+    }) as DeviceHeartbeat;
+  } catch (error) {
+    console.error('Failed to decode DeviceHeartbeat:', error);
+    throw error;
+  }
+}
+
