@@ -5,12 +5,13 @@
  * 简化的版本，移除了 Companion 和 Scenario 选择器
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSimulator } from '@/hooks/useSimulator';
 import { useMQTT, MQTTLog } from '@/hooks/useMQTT';
 import * as protobuf from 'protobufjs';
 import { decodeDeviceMotionMessage } from '@/lib/protobuf/decoder';
-import { DeviceMotionMessage } from '@/lib/protobuf/types';
+import { DeviceMotionMessage, DeviceHeartbeat } from '@/lib/protobuf/types';
+import { encodeDeviceHeartbeat } from '@/lib/protobuf/encoder';
 import RhythmCanvas from '@/components/RhythmCanvas';
 import StrokeTimelineChart from '@/components/simulator/StrokeTimelineChart';
 import RotationTimelineChart from '@/components/simulator/RotationTimelineChart';
@@ -24,6 +25,7 @@ interface DebugMessage {
   clientId?: string;
   topic?: string;
   binaryData?: Uint8Array | Buffer;
+  messageType?: 'heartbeat' | 'business'; // 消息类型：心跳或业务消息
 }
 
 // 运动任务数据类型
@@ -36,9 +38,17 @@ interface MotionTask {
 const MAX_DEBUG_MESSAGES = 100; // 最大消息数量
 
 export default function SimulatorPage() {
+  // 生成唯一的 clientId，确保每个浏览器会话都有唯一的标识
+  const [uniqueClientId] = useState(() => {
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(2, 11);
+    return `CupSimulator_${timestamp}_${randomStr}`;
+  });
+
   // 调试数据
   const [upstreamMessages, setUpstreamMessages] = useState<DebugMessage[]>([]);
   const [downstreamMessages, setDownstreamMessages] = useState<DebugMessage[]>([]);
+  const [heartbeatFilter, setHeartbeatFilter] = useState<'all' | 'runtime' | 'heartbeat'>('all'); // 日志过滤标签
   
   // MQTT 连接配置
   const [brokerUrl, setBrokerUrl] = useState<string>('wss://www.feelnova-ai.com/mqtt/');
@@ -49,6 +59,9 @@ export default function SimulatorPage() {
   // 设备注册
   const [deviceToken, setDeviceToken] = useState<string>('hw2020515');
   const [isDeviceRegistered, setIsDeviceRegistered] = useState<boolean>(false);
+  
+  // 心跳定时器引用
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   // 订阅状态
   const [subscribedTopic, setSubscribedTopic] = useState<string | null>(null);
@@ -416,7 +429,7 @@ export default function SimulatorPage() {
     url: brokerUrl,
     username: username,
     password: password,
-    clientId: 'CupSimulator',
+    clientId: uniqueClientId,
     onLog: handleMQTTLog,
     onMessage: handleMQTTMessage,
     onDisconnect: () => {
@@ -425,6 +438,80 @@ export default function SimulatorPage() {
       setSubscribedTopic(null);
     }
   });
+
+  // 心跳发送逻辑
+  useEffect(() => {
+    // 如果设备已注册，启动心跳定时器
+    if (isDeviceRegistered && deviceToken && isMQTTConnected && publishMQTT) {
+      // 立即发送一次心跳
+      const sendHeartbeat = async () => {
+        try {
+          const now = Date.now();
+          const heartbeatMessage: DeviceHeartbeat = {
+            device_token: deviceToken,
+            last_online_time: now,
+            battery_level: 100, // 模拟满电
+            heartbeat_time: now
+          };
+
+          const buffer = await encodeDeviceHeartbeat(heartbeatMessage);
+          const topic = `device/heartbeat/${deviceToken}`;
+          const currentClientId = (mqttClient as any)?.options?.clientId || uniqueClientId;
+
+          publishMQTT(topic, buffer, { qos: 1 }, (error?: Error) => {
+            if (!error) {
+              // 发送成功，添加到 Published 区域
+              setUpstreamMessages(prev => [{
+                id: `heartbeat-${Date.now()}-${Math.random()}`,
+                timestamp: Date.now(),
+                type: 'upstream' as const,
+                data: heartbeatMessage,
+                clientId: currentClientId,
+                topic: topic,
+                binaryData: buffer,
+                messageType: 'heartbeat' as const
+              }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
+              
+              console.log('[Heartbeat] 心跳发送成功:', {
+                deviceToken,
+                heartbeatTime: now,
+                topic
+              });
+            } else {
+              console.error('[Heartbeat] 心跳发送失败:', error);
+            }
+          });
+        } catch (error) {
+          console.error('[Heartbeat] 心跳编码失败:', error);
+        }
+      };
+
+      // 立即发送一次
+      sendHeartbeat();
+
+      // 设置定时器，每30秒发送一次
+      heartbeatIntervalRef.current = setInterval(() => {
+        sendHeartbeat();
+      }, 30000);
+
+      console.log('[Heartbeat] 心跳定时器已启动，每30秒发送一次');
+    } else {
+      // 如果设备未注册或连接断开，清除定时器
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+        console.log('[Heartbeat] 心跳定时器已停止');
+      }
+    }
+
+    // 清理函数：组件卸载或依赖变化时清除定时器
+    return () => {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+    };
+  }, [isDeviceRegistered, deviceToken, isMQTTConnected, publishMQTT, mqttClient, uniqueClientId]);
 
   // 处理下发任务
   const handleSendTask = useCallback(async () => {
@@ -475,7 +562,7 @@ export default function SimulatorPage() {
 
       // 发布消息
       const topic = `device/command/${deviceToken}`;
-      const currentClientId = (mqttClient as any)?.options?.clientId || 'CupSimulator';
+      const currentClientId = (mqttClient as any)?.options?.clientId || uniqueClientId;
       
       console.log('[SendTask] 准备发送任务指令');
       console.log('[SendTask] commandType:', message.commandType);
@@ -513,7 +600,8 @@ export default function SimulatorPage() {
             data: messageData,
             clientId: currentClientId,
             topic: topic,
-            binaryData: buffer
+            binaryData: buffer,
+            messageType: 'business' as const
           }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
         }
       });
@@ -689,8 +777,8 @@ export default function SimulatorPage() {
                           
                           // 发布消息
                           const topic = `device/register/${deviceToken}`;
-                          // 从 MQTT 客户端获取 clientId，如果不可用则使用默认值
-                          const currentClientId = (mqttClient as any)?.options?.clientId || 'CupSimulator';
+                          // 从 MQTT 客户端获取 clientId，如果不可用则使用唯一 clientId
+                          const currentClientId = (mqttClient as any)?.options?.clientId || uniqueClientId;
                           publishMQTT(topic, buffer, { qos: 1 }, async (error?: Error) => {
                             if (!error) {
                               // 标记设备已注册
@@ -704,7 +792,8 @@ export default function SimulatorPage() {
                                 data: message,
                                 clientId: currentClientId,
                                 topic: topic,
-                                binaryData: buffer
+                                binaryData: buffer,
+                                messageType: 'business' as const
                               }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
 
                               // 注册成功后，订阅 device/command/{deviceToken} topic
@@ -785,8 +874,8 @@ export default function SimulatorPage() {
                           
                           // 发布消息
                           const topic = `device/command/${deviceToken}`;
-                          // 从 MQTT 客户端获取 clientId，如果不可用则使用默认值
-                          const currentClientId = (mqttClient as any)?.options?.clientId || 'CupSimulator';
+                          // 从 MQTT 客户端获取 clientId，如果不可用则使用唯一 clientId
+                          const currentClientId = (mqttClient as any)?.options?.clientId || uniqueClientId;
                           publishMQTT(topic, buffer, { qos: 1 }, (error?: Error) => {
                             if (!error) {
                               // 添加到 Published 区域
@@ -797,7 +886,8 @@ export default function SimulatorPage() {
                                 data: message,
                                 clientId: currentClientId,
                                 topic: topic,
-                                binaryData: buffer
+                                binaryData: buffer,
+                                messageType: 'business' as const
                               }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
                             }
                           });
@@ -851,8 +941,8 @@ export default function SimulatorPage() {
 
                           // 发布消息
                           const topic = `device/command/${deviceToken}`;
-                          // 从 MQTT 客户端获取 clientId，如果不可用则使用默认值
-                          const currentClientId = (mqttClient as any)?.options?.clientId || 'CupSimulator';
+                          // 从 MQTT 客户端获取 clientId，如果不可用则使用唯一 clientId
+                          const currentClientId = (mqttClient as any)?.options?.clientId || uniqueClientId;
                           publishMQTT(topic, buffer, { qos: 1 }, (error?: Error) => {
                             if (!error) {
                               // 添加到 Published 区域
@@ -863,7 +953,8 @@ export default function SimulatorPage() {
                                 data: message,
                                 clientId: currentClientId,
                                 topic: topic,
-                                binaryData: buffer
+                                binaryData: buffer,
+                                messageType: 'business' as const
                               }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
                             }
                           });
@@ -1070,7 +1161,42 @@ export default function SimulatorPage() {
             {/* Published 消息 */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-medium text-white/70">Published</h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-medium text-white/70">Published</h4>
+                  {/* 标签切换按钮 */}
+                  <div className="flex items-center gap-1 bg-white/5 rounded px-1 py-0.5">
+                    <button
+                      onClick={() => setHeartbeatFilter('all')}
+                      className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                        heartbeatFilter === 'all'
+                          ? 'bg-white/20 text-white'
+                          : 'text-white/50 hover:text-white/70'
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setHeartbeatFilter('runtime')}
+                      className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                        heartbeatFilter === 'runtime'
+                          ? 'bg-white/20 text-white'
+                          : 'text-white/50 hover:text-white/70'
+                      }`}
+                    >
+                      Runtime
+                    </button>
+                    <button
+                      onClick={() => setHeartbeatFilter('heartbeat')}
+                      className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                        heartbeatFilter === 'heartbeat'
+                          ? 'bg-white/20 text-white'
+                          : 'text-white/50 hover:text-white/70'
+                      }`}
+                    >
+                      Heartbeat
+                    </button>
+                  </div>
+                </div>
                 <button
                   onClick={() => setUpstreamMessages([])}
                   className="text-xs text-white/50 hover:text-white/70 transition-colors"
@@ -1079,10 +1205,23 @@ export default function SimulatorPage() {
                 </button>
               </div>
               <div className="bg-black/30 rounded-lg border border-white/10 p-3 h-[200px] overflow-y-auto space-y-2">
-                {upstreamMessages.length === 0 ? (
-                  <div className="text-xs text-white/30 text-center py-2">No published messages</div>
-                ) : (
-                  upstreamMessages.map((msg) => (
+                {(() => {
+                  // 根据过滤标签过滤消息
+                  let filteredMessages: DebugMessage[];
+                  if (heartbeatFilter === 'heartbeat') {
+                    filteredMessages = upstreamMessages.filter(msg => msg.messageType === 'heartbeat');
+                  } else if (heartbeatFilter === 'runtime') {
+                    filteredMessages = upstreamMessages.filter(msg => msg.messageType !== 'heartbeat');
+                  } else {
+                    // 'all' - 显示所有消息
+                    filteredMessages = upstreamMessages;
+                  }
+                  
+                  if (filteredMessages.length === 0) {
+                    return <div className="text-xs text-white/30 text-center py-2">No published messages</div>;
+                  }
+                  
+                  return filteredMessages.map((msg) => (
                     <div key={msg.id} className="text-xs font-mono border-b border-white/5 pb-2 last:border-0 last:pb-0">
                       <div className="text-white/50 mb-1">
                         {new Date(msg.timestamp).toLocaleTimeString()}
@@ -1111,8 +1250,8 @@ export default function SimulatorPage() {
                         {renderMessageData(msg.data, 'text-green-400')}
                       </div>
                     </div>
-                  ))
-                )}
+                  ));
+                })()}
               </div>
             </div>
 

@@ -10,7 +10,7 @@ message DeviceRegister {
   uint64 register_time = 4;      // 注册时间戳，Unix时间戳（毫秒）
 }
 
-// 设备心跳消息（设备 → 后端）
+// 设备心跳消息（设备 → 后端）// 每30秒发送一次，如果上位机连续3次也就是90秒内没收到心跳就判断设备离线；
 message DeviceHeartbeat {
   string device_token = 1;       // 设备Token
   uint64 last_online_time = 2;   // 最后在线时间，Unix时间戳（毫秒）
