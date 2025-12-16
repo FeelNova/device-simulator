@@ -42,6 +42,11 @@ export class MotionPlanner {
   private controlInterval: number = 2000; // 控制间隔（毫秒），默认 2 秒
   private logs: MotionLog[] = [];
   private maxLogs: number = 10;
+  
+  // 当前 unit 强度管理
+  private currentUnitIntensity: number = 1.0; // 当前 unit 的动态强度（可被 SET_INTENSITY 修改）
+  private currentUnitIndex: number | null = null; // 当前执行的 unit 索引
+  private originalUnitIntensities: Map<number, number> = new Map(); // 保存每个 unit 的原始 intensity
 
   /**
    * 保存primitive配置
@@ -146,6 +151,11 @@ export class MotionPlanner {
     console.log('[MotionPlanner] primitivesCache size:', this.primitivesCache.size);
     console.log('[MotionPlanner] primitivesCache keys:', Array.from(this.primitivesCache.keys()));
     
+    // 重置当前 unit 信息
+    this.currentUnitIndex = null;
+    this.currentUnitIntensity = 1.0;
+    this.originalUnitIntensities.clear();
+    
     if (!session.units || session.units.length === 0) {
       console.warn('[MotionPlanner] 无units，无法生成时间线');
       this.addLog('SessionMessage: 无units，无法生成时间线');
@@ -183,9 +193,21 @@ export class MotionPlanner {
       });
 
       validUnitsCount++;
-      const unitIntensity = (unit.intensity || 1.0) * this.globalIntensity;
+      
+      // 保存原始 intensity
+      const originalIntensity = unit.intensity || 1.0;
+      this.originalUnitIntensities.set(unitIndex, originalIntensity);
+      
+      // 如果是第一个 unit，初始化当前 unit 信息
+      if (this.currentUnitIndex === null) {
+        this.currentUnitIntensity = originalIntensity;
+        this.currentUnitIndex = unitIndex;
+      }
+      
+      // 使用原始 intensity 计算（动态强度会在生成帧时应用）
+      const unitIntensity = originalIntensity * this.globalIntensity;
       const iteration = unit.iteration || 1;
-      console.log('[MotionPlanner] unitIntensity:', unitIntensity, 'iteration:', iteration);
+      console.log('[MotionPlanner] unitIntensity:', unitIntensity, 'iteration:', iteration, 'originalIntensity:', originalIntensity);
       
       // 注意：不在生成timeline时添加日志，而是在执行时检测unit切换后添加
 
@@ -379,6 +401,7 @@ export class MotionPlanner {
     timeline?: TimelineKeyframe[];
     intensity?: number;
   } {
+    console.log('[MotionPlanner] handleControl 收到的 control.command:', control.command, '类型:', typeof control.command);
     switch (control.command) {
       case 1: // COMMAND_RESET
         this.currentTimeline = [];
@@ -410,10 +433,20 @@ export class MotionPlanner {
         return { action: 'resume' };
 
       case 4: // COMMAND_SET_INTENSITY
-        const intensity = control.intensity || 1.0;
-        this.globalIntensity = Math.max(0, Math.min(2, intensity)); // 限制在0-2之间
-        this.addLog(`ControlMessage(SET_INTENSITY): 设置全局强度倍率为${this.globalIntensity}`);
-        return { action: 'set_intensity', intensity: this.globalIntensity };
+        const messageIntensity = control.intensity || 1.0;
+        
+        // 如果当前有 unit 在执行，修改当前 unit 的 intensity
+        if (this.currentUnitIndex !== null) {
+          const originalIntensity = this.originalUnitIntensities.get(this.currentUnitIndex) || 1.0;
+          // 新 intensity = 消息中的 intensity × 当前 unit 的原始 intensity
+          this.currentUnitIntensity = messageIntensity * originalIntensity;
+          this.addLog(`ControlMessage(SET_INTENSITY): 修改当前 Unit[${this.currentUnitIndex}] 的强度为 ${this.currentUnitIntensity} (原始: ${originalIntensity}, 消息: ${messageIntensity})`);
+        } else {
+          // 没有 unit 在执行，设置全局强度作为后备
+          this.globalIntensity = Math.max(0, Math.min(2, messageIntensity));
+          this.addLog(`ControlMessage(SET_INTENSITY): 没有 unit 在执行，设置全局强度为 ${this.globalIntensity}`);
+        }
+        return { action: 'set_intensity', intensity: this.currentUnitIntensity };
 
       default:
         return { action: 'none' };
@@ -539,6 +572,33 @@ export class MotionPlanner {
    */
   getPrimitivesCache(): PrimitivesCache {
     return this.primitivesCache;
+  }
+
+  /**
+   * 更新当前执行的 unit
+   */
+  updateCurrentUnit(unitIndex: number, unitIntensity: number): void {
+    // 如果切换到新的 unit，重置强度为原始值
+    if (this.currentUnitIndex !== unitIndex) {
+      const originalIntensity = this.originalUnitIntensities.get(unitIndex) || unitIntensity;
+      this.currentUnitIntensity = originalIntensity;
+    }
+    // 如果还是同一个 unit，保持当前强度（可能已被 SET_INTENSITY 修改）
+    this.currentUnitIndex = unitIndex;
+  }
+
+  /**
+   * 获取当前 unit 的动态强度
+   */
+  getCurrentUnitIntensity(): number {
+    return this.currentUnitIntensity;
+  }
+
+  /**
+   * 获取当前 unit 的索引
+   */
+  getCurrentUnitIndex(): number | null {
+    return this.currentUnitIndex;
   }
 
   /**

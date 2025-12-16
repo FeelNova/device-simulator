@@ -204,7 +204,7 @@ export async function decodeDeviceMotionMessage(buffer: Uint8Array): Promise<Dev
     // 转换为普通对象
     const decoded = DeviceMotionMessageType.toObject(message, {
       longs: String,
-      enums: String,
+      enums: Number,
       bytes: Uint8Array,
       defaults: true,
       arrays: true,

@@ -10,7 +10,7 @@ import { useSimulator } from '@/hooks/useSimulator';
 import { useMQTT, MQTTLog } from '@/hooks/useMQTT';
 import * as protobuf from 'protobufjs';
 import { decodeDeviceMotionMessage } from '@/lib/protobuf/decoder';
-import { DeviceMotionMessage, DeviceHeartbeat } from '@/lib/protobuf/types';
+import { DeviceMotionMessage, DeviceHeartbeat, ControlMessage } from '@/lib/protobuf/types';
 import { encodeDeviceHeartbeat } from '@/lib/protobuf/encoder';
 import { MotionState } from '@/lib/motion/motionPlanner';
 import RhythmCanvas from '@/components/RhythmCanvas';
@@ -974,6 +974,201 @@ export default function SimulatorPage() {
                       className="flex-1 px-6 py-2 bg-green-500/20 border border-green-500/50 text-green-200 rounded-lg hover:bg-green-500/30 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 active:opacity-80"
                     >
                       Start
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!isMQTTConnected) {
+                          alert('Please connect to MQTT broker first');
+                          return;
+                        }
+
+                        if (!deviceToken.trim()) {
+                          alert('Please enter device token first');
+                          return;
+                        }
+
+                        // 根据当前状态决定发送 PAUSE 还是 RESUME
+                        const isPaused = motionState === MotionState.PAUSED;
+                        const controlCommand = isPaused ? 3 : 2; // 3=RESUME, 2=PAUSE
+
+                        try {
+                          // 使用内联 proto 定义来编码 ControlMessage（与 decoder.ts 保持一致）
+                          const deviceMotionProto = `
+                            message DeviceMotionMessage {
+                              oneof body {
+                                ConfigMessage config = 1;
+                                SessionMessage session = 2;
+                                ControlMessage control = 3;
+                              }
+                            }
+                            
+                            message Movement {
+                              enum Direction {
+                                DIRECTION_DOWN = 0;
+                                DIRECTION_UP = 1;
+                              }
+                              
+                              enum RotationDirection {
+                                ROT_DIR_CLOCKWISE = 0;
+                                ROT_DIR_COUNTER_CLOCKWISE = 1;
+                              }
+                              
+                              Direction direction = 1;
+                              float distance = 2;
+                              float duration = 3;
+                              float rotation = 4;
+                              RotationDirection rotation_direction = 5;
+                            }
+                            
+                            message Primitive {
+                              string primitive_id = 1;
+                              repeated Movement movements = 2;
+                            }
+                            
+                            message ConfigMessage {
+                              repeated Primitive primitives = 1;
+                            }
+                            
+                            message Unit {
+                              string primitive_id = 1;
+                              int32 iteration = 2;
+                              float intensity = 3;
+                            }
+                            
+                            message SessionMessage {
+                              repeated Unit units = 1;
+                            }
+                            
+                            message ControlMessage {
+                              enum Command {
+                                COMMAND_UNSPECIFIED = 0;
+                                COMMAND_RESET = 1;
+                                COMMAND_PAUSE = 2;
+                                COMMAND_RESUME = 3;
+                                COMMAND_SET_INTENSITY = 4;
+                              }
+                              
+                              Command command = 1;
+                              float intensity = 2;
+                              float duration = 3;
+                            }
+                          `;
+                          
+                          const combinedProto = `
+                            syntax = "proto3";
+                            
+                            package com.sexToy.proto;
+                            
+                            enum CommandType {
+                              COMMAND_UNSPECIFIED = 0;
+                              COMMAND_START = 1;
+                              COMMAND_STOP = 2;
+                              COMMAND_TASK = 3;
+                            }
+                            
+                            message DeviceCommand {
+                              string device_token = 1;
+                              CommandType command_type = 2;
+                              bytes command_data = 3;
+                              uint64 timestamp = 4;
+                            }
+                          `;
+                          
+                          const mergedProto = combinedProto + '\n' + deviceMotionProto;
+                          const root = protobuf.parse(mergedProto).root;
+                          
+                          const DeviceMotionMessage = root.lookupType('com.sexToy.proto.DeviceMotionMessage');
+                          const ControlMessage = root.lookupType('com.sexToy.proto.ControlMessage');
+                          const DeviceCommand = root.lookupType('com.sexToy.proto.DeviceCommand');
+
+                          // 创建 ControlMessage
+                          const controlMessage = {
+                            command: controlCommand
+                          };
+
+                          // 验证 ControlMessage
+                          const controlErrMsg = ControlMessage.verify(controlMessage);
+                          if (controlErrMsg) {
+                            throw new Error(`Invalid ControlMessage: ${controlErrMsg}`);
+                          }
+
+                          // 创建 DeviceMotionMessage，包含 ControlMessage
+                          const motionMessage = {
+                            control: controlMessage
+                          };
+
+                          // 验证 DeviceMotionMessage
+                          const motionErrMsg = DeviceMotionMessage.verify(motionMessage);
+                          if (motionErrMsg) {
+                            throw new Error(`Invalid DeviceMotionMessage: ${motionErrMsg}`);
+                          }
+
+                          // 创建 DeviceMotionMessage 实例并编码
+                          const deviceMotionMsg = DeviceMotionMessage.create(motionMessage);
+                          const deviceMotionBuffer = DeviceMotionMessage.encode(deviceMotionMsg).finish();
+
+                          // 创建 DeviceCommand 消息
+                          const message: any = {
+                            deviceToken: deviceToken,
+                            commandType: 3, // COMMAND_TASK
+                            commandData: deviceMotionBuffer, // ControlMessage 编码后的数据
+                            timestamp: Date.now()
+                          };
+
+                          // 验证消息
+                          const errMsg = DeviceCommand.verify(message);
+                          if (errMsg) {
+                            throw new Error(`Invalid message: ${errMsg}`);
+                          }
+
+                          // 创建消息实例并序列化
+                          const deviceCommandMsg = DeviceCommand.create(message);
+                          const uint8Array = DeviceCommand.encode(deviceCommandMsg).finish();
+                          const buffer = Buffer.from(uint8Array) as any;
+
+                          // 发布消息
+                          const topic = `device/command/${deviceToken}`;
+                          const currentClientId = (mqttClient as any)?.options?.clientId || uniqueClientId;
+                          
+                          publishMQTT(topic, buffer, { qos: 1 }, async (error?: Error) => {
+                            if (!error) {
+                              console.log(`[Control] 发送 ${isPaused ? 'RESUME' : 'PAUSE'} 命令成功`);
+                              
+                              // 添加到 Published 区域
+                              setUpstreamMessages(prev => [{
+                                id: `${Date.now()}-${Math.random()}`,
+                                timestamp: Date.now(),
+                                type: 'upstream' as const,
+                                data: {
+                                  ...message,
+                                  decodedCommandData: {
+                                    body: 'control',
+                                    control: controlMessage
+                                  }
+                                },
+                                clientId: currentClientId,
+                                topic: topic,
+                                binaryData: buffer,
+                                messageType: 'business' as const
+                              }, ...prev].slice(0, MAX_DEBUG_MESSAGES));
+                            } else {
+                              console.error(`[Control] 发送 ${isPaused ? 'RESUME' : 'PAUSE'} 命令失败:`, error);
+                            }
+                          });
+                        } catch (error) {
+                          const commandName = motionState === MotionState.PAUSED ? 'resume' : 'pause';
+                          console.error(`Failed to send ${commandName} command:`, error);
+                          alert(`Failed to send ${commandName} command: ${(error as Error).message}`);
+                        }
+                      }}
+                      disabled={!isMQTTConnected || !deviceToken.trim() || (!isRunning && motionState !== MotionState.PAUSED)}
+                      className={`flex-1 px-6 py-2 border rounded-lg hover:opacity-80 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 active:opacity-80 ${
+                        motionState === MotionState.PAUSED
+                          ? 'bg-green-500/20 border-green-500/50 text-green-200 hover:bg-green-500/30'
+                          : 'bg-yellow-500/20 border-yellow-500/50 text-yellow-200 hover:bg-yellow-500/30'
+                      }`}
+                    >
+                      {motionState === MotionState.PAUSED ? "Resume" : "Pause"}
                     </button>
                     <button
                       onClick={async () => {

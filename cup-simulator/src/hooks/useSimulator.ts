@@ -138,9 +138,11 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         if (newUnitIndex !== undefined && newUnitIndex !== null && newUnitIndex !== currentUnitIndexRef.current) {
           currentUnitIndexRef.current = newUnitIndex;
           
-          // 添加日志：执行到新的 unit
+          // 更新 MotionPlanner 中的当前 unit
           if (currentSessionRef.current && currentSessionRef.current.units[newUnitIndex]) {
             const unit = currentSessionRef.current.units[newUnitIndex];
+            motionPlannerRef.current.updateCurrentUnit(newUnitIndex, unit.intensity || 1.0);
+            
             const logMessage = `Executing Unit[${newUnitIndex}]: {"primitive_id": "${unit.primitiveId}", "iteration": ${unit.iteration || 1}, "intensity": ${unit.intensity || 1.0}}`;
             motionPlannerRef.current.addLogMessage(logMessage);
             // 立即更新日志，确保UI能显示
@@ -162,10 +164,61 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
           }
         }
         
-        // 更新当前 strokeSpeed（用于显示）
-        if (keyframeResult.strokeSpeed !== undefined) {
-          setCurrentStrokeSpeed(keyframeResult.strokeSpeed);
+        // 动态应用强度修改（如果当前 unit 的强度被 SET_INTENSITY 修改）
+        let adjustedFrame = frame;
+        let adjustedStrokeSpeed = keyframeResult.strokeSpeed ?? strokeVelocity;
+        
+        if (keyframeResult.unitIndex !== undefined && keyframeResult.unitIndex !== null && currentSessionRef.current) {
+          const currentUnit = currentSessionRef.current.units[keyframeResult.unitIndex];
+          if (currentUnit) {
+            const dynamicIntensity = motionPlannerRef.current.getCurrentUnitIntensity();
+            const originalIntensity = currentUnit.intensity || 1.0;
+            
+            // 如果强度被修改，需要动态调整速度
+            if (dynamicIntensity !== originalIntensity) {
+              const intensityRatio = dynamicIntensity / originalIntensity;
+              
+              // 调整 stroke 速度
+              if (keyframeResult.strokeSpeed !== undefined) {
+                adjustedStrokeSpeed = keyframeResult.strokeSpeed * intensityRatio;
+              }
+              
+              // 调整 rotation 速度（通过调整 rotation 值的变化率）
+              // 由于 rotation 是累积值，需要根据时间差和速度来计算
+              if (previousFrameRef.current !== null && previousTimestampRef.current !== null) {
+                const timeDelta = (now - previousTimestampRef.current) / 1000; // 秒
+                if (timeDelta > 0) {
+                  const originalRotationDelta = frame.rotation - previousFrameRef.current.rotation;
+                  const adjustedRotationDelta = originalRotationDelta * intensityRatio;
+                  adjustedFrame = {
+                    ...frame,
+                    rotation: previousFrameRef.current.rotation + adjustedRotationDelta
+                  };
+                }
+              }
+              
+              // 调整 stroke 位置的变化速度
+              // stroke 是往复运动，速度影响往复频率
+              // 由于 stroke 位置已经在 keyframe 中计算好，我们需要根据强度比例调整
+              // 但更简单的方法是调整时间步长，或者重新计算 stroke 位置
+              // 这里我们通过调整 stroke 的变化率来实现
+              if (previousFrameRef.current !== null && previousTimestampRef.current !== null) {
+                const timeDelta = (now - previousTimestampRef.current) / 1000;
+                if (timeDelta > 0) {
+                  const originalStrokeDelta = frame.stroke - previousFrameRef.current.stroke;
+                  const adjustedStrokeDelta = originalStrokeDelta * intensityRatio;
+                  adjustedFrame = {
+                    ...adjustedFrame,
+                    stroke: Math.max(0, Math.min(1, previousFrameRef.current.stroke + adjustedStrokeDelta))
+                  };
+                }
+              }
+            }
+          }
         }
+        
+        // 更新当前 strokeSpeed（用于显示）
+        setCurrentStrokeSpeed(adjustedStrokeSpeed);
         
         // 每100帧打印一次日志（避免日志过多）
         // if (Math.floor(relativeTime / 100) % 100 === 0) {
@@ -176,25 +229,25 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         //     strokeSpeed: strokeSpeed.toFixed(3)
         //   });
         // }
-        setCurrentFrame(frame);
+        setCurrentFrame(adjustedFrame);
         
         // 计算速度（变化率）
         if (previousFrameRef.current !== null && previousTimestampRef.current !== null) {
           const timeDelta = (now - previousTimestampRef.current) / 1000; // 转换为秒
           if (timeDelta > 0) {
-            const strokeDelta = frame.stroke - previousFrameRef.current.stroke;
-            const rotationDelta = frame.rotation - previousFrameRef.current.rotation;
+            const strokeDelta = adjustedFrame.stroke - previousFrameRef.current.stroke;
+            const rotationDelta = adjustedFrame.rotation - previousFrameRef.current.rotation;
             setStrokeVelocity(strokeDelta / timeDelta);
             setRotationVelocity(rotationDelta / timeDelta);
           }
         }
         
-        previousFrameRef.current = frame;
+        previousFrameRef.current = adjustedFrame;
         previousTimestampRef.current = now;
         
         // 记录历史数据 - strokeHistory 存储速度值而不是位置值
         setStrokeHistory(prev => {
-          const newHistory = [...prev, { timestamp: now, value: strokeSpeed }];
+          const newHistory = [...prev, { timestamp: now, value: adjustedStrokeSpeed }];
           return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
         });
         setRotationHistory(prev => {
@@ -338,6 +391,11 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         case 'pause':
           setMotionState(MotionState.PAUSED);
           pausedAtTimeRef.current = Date.now();
+          // 取消当前的动画循环
+          if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+            animationFrameRef.current = null;
+          }
           break;
         case 'resume':
           setMotionState(prevState => {
@@ -351,13 +409,17 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
             }
             return MotionState.RUNNING;
           });
+          // 重新启动动画循环
+          if (!animationFrameRef.current && isRunning && motionTimeline.length > 0 && !enableWS) {
+            generateTimelineFrame();
+          }
           break;
         case 'set_intensity':
           // 强度已由planner内部更新
           break;
       }
     }
-  }, [controlInterval, generateTimelineFrame]);
+  }, [controlInterval, generateTimelineFrame, isRunning, motionTimeline, enableWS]);
 
   // 更新ref
   useEffect(() => {
