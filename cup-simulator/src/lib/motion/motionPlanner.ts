@@ -215,21 +215,21 @@ export class MotionPlanner {
             ? -baseRotationSpeed  // 逆时针，使用负值
             : baseRotationSpeed;  // 顺时针，使用正值
 
-          console.log('[MotionPlanner] 生成关键帧:', {
-            iter,
-            movement: {
-              distance: movement.distance,
-              duration: movement.duration,
-              rotation: movement.rotation,
-              rotationDirection: movement.rotationDirection
-            },
-            movementStartTime,
-            endTime,
-            strokeSpeed,
-            rotationSpeed,
-            currentStroke,
-            currentRotation
-          });
+          // console.log('[MotionPlanner] 生成关键帧:', {
+          //   iter,
+          //   movement: {
+          //     distance: movement.distance,
+          //     duration: movement.duration,
+          //     rotation: movement.rotation,
+          //     rotationDirection: movement.rotationDirection
+          //   },
+          //   movementStartTime,
+          //   endTime,
+          //   strokeSpeed,
+          //   rotationSpeed,
+          //   currentStroke,
+          //   currentRotation
+          // });
 
           // 计算在duration时间内完成的往复次数
           const cycles = strokeSpeed * (movement.duration || 0);

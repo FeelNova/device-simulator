@@ -168,14 +168,14 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         }
         
         // 每100帧打印一次日志（避免日志过多）
-        if (Math.floor(relativeTime / 100) % 100 === 0) {
-          console.log('[Motion] 生成帧 - relativeTime:', relativeTime, 'frame:', {
-            stroke: frame.stroke.toFixed(3),
-            rotation: frame.rotation.toFixed(3),
-            intensity: frame.intensity.toFixed(3),
-            strokeSpeed: strokeSpeed.toFixed(3)
-          });
-        }
+        // if (Math.floor(relativeTime / 100) % 100 === 0) {
+        //   console.log('[Motion] 生成帧 - relativeTime:', relativeTime, 'frame:', {
+        //     stroke: frame.stroke.toFixed(3),
+        //     rotation: frame.rotation.toFixed(3),
+        //     intensity: frame.intensity.toFixed(3),
+        //     strokeSpeed: strokeSpeed.toFixed(3)
+        //   });
+        // }
         setCurrentFrame(frame);
         
         // 计算速度（变化率）
@@ -300,7 +300,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
           units: currentSessionRef.current.units
         });
         
-        // 如果当前没有运行，启动运动
+        // 确保 isRunning 为 true
         setIsRunning(prev => {
           if (!prev) {
             console.log('[Motion] 启动运动 (isRunning 从 false 变为 true)');
@@ -308,6 +308,14 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
           }
           return prev;
         });
+        
+        // 先取消旧的动画循环（如果有），确保使用新的时间线
+        // useEffect 会在状态更新后自动启动新的动画循环
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+        console.log('[Motion] 时间线已设置，等待 useEffect 启动动画循环');
       } else {
         console.warn('[Motion] 生成的时间线为空，无法执行运动');
       }
@@ -349,7 +357,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
           break;
       }
     }
-  }, [controlInterval]);
+  }, [controlInterval, generateTimelineFrame]);
 
   // 更新ref
   useEffect(() => {
@@ -433,6 +441,17 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     }
   }, [isWSConnected, wsFrame, isRunning, enableWS, generateTimelineFrame]);
 
+  // 当时间线生成且状态就绪时，自动启动动画循环
+  useEffect(() => {
+    if (isRunning && motionTimeline.length > 0 && motionState === MotionState.RUNNING && !enableWS) {
+      // 如果还没有动画循环在运行，启动它
+      if (!animationFrameRef.current) {
+        console.log('[Motion] 检测到时间线就绪，自动启动动画循环');
+        generateTimelineFrame();
+      }
+    }
+  }, [isRunning, motionTimeline.length, motionState, enableWS, generateTimelineFrame]);
+
   // 清理
   useEffect(() => {
     return () => {
@@ -493,6 +512,8 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     controlInterval,
     setControlInterval,
     isMotionCommandMode,
+    motionTimeline,
+    motionState,
     start,
     stop,
     processMotionCommand,

@@ -12,6 +12,7 @@ import * as protobuf from 'protobufjs';
 import { decodeDeviceMotionMessage } from '@/lib/protobuf/decoder';
 import { DeviceMotionMessage, DeviceHeartbeat } from '@/lib/protobuf/types';
 import { encodeDeviceHeartbeat } from '@/lib/protobuf/encoder';
+import { MotionState } from '@/lib/motion/motionPlanner';
 import RhythmCanvas from '@/components/RhythmCanvas';
 import StrokeTimelineChart from '@/components/simulator/StrokeTimelineChart';
 import RotationTimelineChart from '@/components/simulator/RotationTimelineChart';
@@ -50,6 +51,9 @@ export default function SimulatorPage() {
   const [downstreamMessages, setDownstreamMessages] = useState<DebugMessage[]>([]);
   const [heartbeatFilter, setHeartbeatFilter] = useState<'all' | 'runtime' | 'heartbeat'>('all'); // 日志过滤标签
   
+  // 管理每个消息的 commandData (decoded) 折叠状态
+  const [collapsedDecodedData, setCollapsedDecodedData] = useState<Record<string, boolean>>({});
+  
   // MQTT 连接配置
   const [brokerUrl, setBrokerUrl] = useState<string>('wss://www.feelnova-ai.com/mqtt/');
   const [username, setUsername] = useState<string>('admin');
@@ -86,6 +90,8 @@ export default function SimulatorPage() {
     controlInterval,
     setControlInterval,
     isMotionCommandMode,
+    motionTimeline,
+    motionState,
     start,
     stop,
     processMotionCommand,
@@ -130,7 +136,7 @@ export default function SimulatorPage() {
   }, []);
 
   // 渲染消息数据，特殊处理 commandType=3 的情况
-  const renderMessageData = useCallback((data: any, textColorClass: string = '') => {
+  const renderMessageData = useCallback((data: any, textColorClass: string = '', messageId?: string) => {
     // 如果 commandType=3 且 commandData 不为空，特殊处理
     if (data.commandType === 3 && data.commandData && data.commandData.length > 0) {
       // 创建新的对象，排除 commandData
@@ -149,22 +155,47 @@ export default function SimulatorPage() {
       
       return (
         <div>
-          {Object.entries(displayData).map(([key, value]) => (
-            <div key={key} className="mb-1">
-              <span className="text-white/70">
-                {key === 'commandData (decoded)' ? (
-                  <>
-                    commandData <span className="text-red-400">(decoded)</span>:
-                  </>
-                ) : (
-                  `${key}:`
+          {Object.entries(displayData).map(([key, value]) => {
+            const isDecodedData = key === 'commandData (decoded)';
+            // 为每个消息生成唯一 ID（使用消息的 ID 或 timestamp 和 key）
+            const uniqueId = messageId ? `${messageId}-${key}` : `${data.timestamp || Date.now()}-${key}`;
+            const isCollapsed = collapsedDecodedData[uniqueId] !== false; // 默认 true（折叠）
+            
+            return (
+              <div key={key} className="mb-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-white/70">
+                    {isDecodedData ? (
+                      <>
+                        commandData <span className="text-red-400">(decoded)</span>:
+                      </>
+                    ) : (
+                      `${key}:`
+                    )}
+                  </span>
+                  {isDecodedData && (
+                    <button
+                      onClick={() => {
+                        setCollapsedDecodedData((prev: Record<string, boolean>) => ({
+                          ...prev,
+                          [uniqueId]: !isCollapsed
+                        }));
+                      }}
+                      className="text-white/50 hover:text-white/80 transition-colors text-xs"
+                      title={isCollapsed ? '展开' : '折叠'}
+                    >
+                      {isCollapsed ? '▶' : '▼'}
+                    </button>
+                  )}
+                </div>
+                {(!isDecodedData || !isCollapsed) && (
+                  <pre className={`${textColorClass} mt-0.5 ml-4 whitespace-pre-wrap`}>
+                    {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                  </pre>
                 )}
-              </span>
-              <pre className={`${textColorClass} mt-0.5 ml-4 whitespace-pre-wrap`}>
-                {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
-              </pre>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       );
     }
@@ -175,7 +206,7 @@ export default function SimulatorPage() {
         {JSON.stringify(data, null, 2)}
       </pre>
     );
-  }, []);
+  }, [collapsedDecodedData]);
 
   // 处理文件上传
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -337,12 +368,14 @@ export default function SimulatorPage() {
                 return;
               }
               
-              // 如果当前有运动在执行，将指令加入队列；否则立即执行
-              if (isRunning) {
-                console.log('[MQTT] 当前有运动在执行，将指令加入队列');
+              // 如果当前有时间线在执行，将指令加入队列；否则立即执行
+              // 注意：isRunning 可能为 true 但没有时间线（使用 mock 数据），此时应该立即执行
+              const hasActiveTimeline = isRunning && motionTimeline.length > 0 && motionState === MotionState.RUNNING;
+              if (hasActiveTimeline) {
+                console.log('[MQTT] 当前有时间线在执行，将指令加入队列');
                 queueCommand(motionMessage);
               } else {
-                console.log('[MQTT] 当前无运动，立即执行指令');
+                console.log('[MQTT] 当前无时间线执行，立即执行指令');
                 processMotionCommand(motionMessage);
                 // 如果生成了时间线，自动启动运动
                 if (motionMessage.body?.session) {
@@ -1288,7 +1321,7 @@ export default function SimulatorPage() {
                         </div>
                       )}
                       <div className="text-green-400 break-all">
-                        {renderMessageData(msg.data, 'text-green-400')}
+                        {renderMessageData(msg.data, 'text-green-400', msg.id)}
                       </div>
                     </div>
                   ));
@@ -1332,7 +1365,7 @@ export default function SimulatorPage() {
                         </div>
                       )}
                       <div className="text-blue-400 break-all">
-                        {renderMessageData(msg.data, 'text-blue-400')}
+                        {renderMessageData(msg.data, 'text-blue-400', msg.id)}
                       </div>
                     </div>
                   ))
