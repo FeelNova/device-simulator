@@ -264,37 +264,37 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
       }
     } else {
       // 没有时间线，使用mock数据
-      if (startTimeRef.current === null) {
-        startTimeRef.current = now;
-      }
+    if (startTimeRef.current === null) {
+      startTimeRef.current = now;
+    }
 
-      const elapsed = now - startTimeRef.current;
-      const frame = mockRhythm(elapsed);
-      setCurrentFrame(frame);
-      
-      // 计算速度（变化率）
-      if (previousFrameRef.current !== null && previousTimestampRef.current !== null) {
+    const elapsed = now - startTimeRef.current;
+    const frame = mockRhythm(elapsed);
+    setCurrentFrame(frame);
+    
+    // 计算速度（变化率）
+    if (previousFrameRef.current !== null && previousTimestampRef.current !== null) {
         const timeDelta = (now - previousTimestampRef.current) / 1000;
-        if (timeDelta > 0) {
-          const strokeDelta = frame.stroke - previousFrameRef.current.stroke;
-          const rotationDelta = frame.rotation - previousFrameRef.current.rotation;
-          setStrokeVelocity(strokeDelta / timeDelta);
-          setRotationVelocity(rotationDelta / timeDelta);
-        }
+      if (timeDelta > 0) {
+        const strokeDelta = frame.stroke - previousFrameRef.current.stroke;
+        const rotationDelta = frame.rotation - previousFrameRef.current.rotation;
+        setStrokeVelocity(strokeDelta / timeDelta);
+        setRotationVelocity(rotationDelta / timeDelta);
       }
-      
-      previousFrameRef.current = frame;
-      previousTimestampRef.current = now;
-      
+    }
+    
+    previousFrameRef.current = frame;
+    previousTimestampRef.current = now;
+    
       // 记录历史数据
-      setStrokeHistory(prev => {
-        const newHistory = [...prev, { timestamp: now, value: frame.stroke }];
-        return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
-      });
-      setRotationHistory(prev => {
-        const newHistory = [...prev, { timestamp: now, value: frame.rotation }];
-        return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
-      });
+    setStrokeHistory(prev => {
+      const newHistory = [...prev, { timestamp: now, value: frame.stroke }];
+      return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
+    });
+    setRotationHistory(prev => {
+      const newHistory = [...prev, { timestamp: now, value: frame.rotation }];
+      return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
+    });
     }
 
     animationFrameRef.current = requestAnimationFrame(generateTimelineFrame);

@@ -14,34 +14,93 @@ interface RhythmDeviceSceneProps {
   frame: RhythmFrame | null;
 }
 
-// 内部柱体组件
+// 内部柱体组件 - 火箭式分级构造
 function InnerCore({ stroke, intensity }: { stroke: number; intensity: number }) {
-  const coreRef = useRef<Mesh>(null);
+  const coreGroupRef = useRef<Group>(null);
   
   // 根据 intensity 动态调整发光强度
   const emissiveIntensity = useMemo(() => 0.3 + intensity * 0.7, [intensity]);
 
+  // 分级参数
+  const topRadius = 0.3;      // 上段半径
+  const middleRadius = 0.35; // 中段半径
+  const bottomRadius = 0.4;  // 下段半径
+  const coneHeight = 0.4;    // 圆锥高度
+  const segmentHeight = 0.8; // 每段圆柱高度
+
   useFrame(() => {
-    if (coreRef.current) {
+    if (coreGroupRef.current) {
       // 根据 stroke 值轻微缩放（可选效果）
       const scaleY = 1 + stroke * 0.1;
-      coreRef.current.scale.y = scaleY;
+      coreGroupRef.current.scale.y = scaleY;
     }
   });
 
+  // 计算位置：确保圆锥与上段圆柱无缝衔接
+  // 上段圆柱中心在 segmentHeight * 1.5，高度为 segmentHeight
+  // 上段圆柱顶部在 segmentHeight * 1.5 + segmentHeight / 2 = segmentHeight * 2
+  // 圆锥底部应该在 segmentHeight * 2，圆锥中心在 segmentHeight * 2 + coneHeight / 2
+  const topCylinderTop = segmentHeight * 1.5 + segmentHeight / 2;
+  const coneCenterY = topCylinderTop + coneHeight / 2;
+
   return (
-    <mesh ref={coreRef} position={[0, 0, 0]}>
-      <cylinderGeometry args={[0.35, 0.35, 2.8, 32]} />
-      <meshPhysicalMaterial
-        color="#00d4ff"
-        metalness={0.9}
-        roughness={0.1}
-        emissive="#0099cc"
-        emissiveIntensity={emissiveIntensity}
-        clearcoat={1.0}
-        clearcoatRoughness={0.1}
-      />
-    </mesh>
+    <group ref={coreGroupRef} position={[0, 0, 0]}>
+      {/* 顶部圆锥尖 */}
+      <mesh position={[0, coneCenterY, 0]}>
+        <coneGeometry args={[topRadius, coneHeight, 32]} />
+        <meshPhysicalMaterial
+          color="#00d4ff"
+          metalness={0.9}
+          roughness={0.1}
+          emissive="#0099cc"
+          emissiveIntensity={emissiveIntensity}
+          clearcoat={1.0}
+          clearcoatRoughness={0.1}
+        />
+      </mesh>
+
+      {/* 上段圆柱（小半径） */}
+      <mesh position={[0, segmentHeight * 1.5, 0]}>
+        <cylinderGeometry args={[topRadius, topRadius, segmentHeight, 32]} />
+        <meshPhysicalMaterial
+          color="#00d4ff"
+          metalness={0.9}
+          roughness={0.1}
+          emissive="#0099cc"
+          emissiveIntensity={emissiveIntensity}
+          clearcoat={1.0}
+          clearcoatRoughness={0.1}
+        />
+      </mesh>
+
+      {/* 中段圆柱（中等半径） */}
+      <mesh position={[0, segmentHeight * 0.5, 0]}>
+        <cylinderGeometry args={[middleRadius, middleRadius, segmentHeight, 32]} />
+        <meshPhysicalMaterial
+          color="#00d4ff"
+          metalness={0.9}
+          roughness={0.1}
+          emissive="#0099cc"
+          emissiveIntensity={emissiveIntensity}
+          clearcoat={1.0}
+          clearcoatRoughness={0.1}
+        />
+      </mesh>
+
+      {/* 下段圆柱（大半径） */}
+      <mesh position={[0, -segmentHeight * 0.5, 0]}>
+        <cylinderGeometry args={[bottomRadius, bottomRadius, segmentHeight, 32]} />
+        <meshPhysicalMaterial
+          color="#00d4ff"
+          metalness={0.9}
+          roughness={0.1}
+          emissive="#0099cc"
+          emissiveIntensity={emissiveIntensity}
+          clearcoat={1.0}
+          clearcoatRoughness={0.1}
+        />
+      </mesh>
+    </group>
   );
 }
 
@@ -263,9 +322,6 @@ export default function RhythmDeviceScene({ frame }: RhythmDeviceSceneProps) {
     <group>
       {/* 内部柱体 - 科技蓝金属材质 */}
       <InnerCore stroke={stroke} intensity={intensity} />
-      
-      {/* 科技线条装饰 */}
-      <TechLines intensity={intensity} />
       
       {/* 外部套筒 - 半透明金属，可上下移动、旋转、收缩 */}
       <OuterSleeve 

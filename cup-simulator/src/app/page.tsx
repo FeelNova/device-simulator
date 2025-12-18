@@ -45,7 +45,7 @@ export default function SimulatorPage() {
     const randomStr = Math.random().toString(36).substring(2, 11);
     return `CupSimulator_${timestamp}_${randomStr}`;
   });
-
+  
   // 调试数据
   const [upstreamMessages, setUpstreamMessages] = useState<DebugMessage[]>([]);
   const [downstreamMessages, setDownstreamMessages] = useState<DebugMessage[]>([]);
@@ -101,7 +101,7 @@ export default function SimulatorPage() {
     useWebSocket: false, // 默认使用 mock 模式，可以通过环境变量或配置启用
     wsUrl: process.env.NEXT_PUBLIC_WS_URL
   });
-  
+
   // 处理日志回调
   const handleMQTTLog = useCallback((log: MQTTLog) => {
     setMqttLogs(prev => [log, ...prev].slice(0, 100)); // 保留最近100条日志
@@ -366,7 +366,7 @@ export default function SimulatorPage() {
               if (!motionMessage.body) {
                 console.warn('[MQTT] 无法构建 motionMessage，body 为空或数据不完整');
                 return;
-              }
+        }
               
               // 如果当前有时间线在执行，将指令加入队列；否则立即执行
               // 注意：isRunning 可能为 true 但没有时间线（使用 mock 数据），此时应该立即执行
@@ -448,7 +448,7 @@ export default function SimulatorPage() {
       console.error('Failed to load motion tasks from localStorage:', error);
     }
   }, []);
-  
+
   // MQTT 连接
   const {
     isConnected: isMQTTConnected,
@@ -731,8 +731,8 @@ export default function SimulatorPage() {
               {/* Username */}
               <div>
                 <label className="block text-sm text-white/70 mb-2">Username</label>
-                <input
-                  type="text"
+                  <input
+                    type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="admin"
@@ -776,30 +776,30 @@ export default function SimulatorPage() {
 
               {/* Connect/Disconnect 按钮 */}
               <div>
-                <button
-                  onClick={() => {
+                  <button
+                    onClick={() => {
                     if (isMQTTConnected) {
                       disconnectMQTT();
-                    } else {
+                      } else {
                       connectMQTT();
-                    }
-                  }}
+                      }
+                    }}
                   className={`w-full px-6 py-2 rounded-lg font-semibold text-sm transition-colors active:scale-95 active:opacity-80 ${
                     isMQTTConnected
-                      ? 'bg-red-500/20 border border-red-500/50 text-red-200 hover:bg-red-500/30'
+                        ? 'bg-red-500/20 border border-red-500/50 text-red-200 hover:bg-red-500/30'
                       : 'bg-blue-500/20 border border-blue-500/50 text-blue-200 hover:bg-blue-500/30'
-                  }`}
-                >
+                    }`}
+                  >
                   {isMQTTConnected ? 'Disconnect' : 'Connect'}
-                </button>
-                
+                  </button>
+              
                 {isMQTTConnected && (
                   <div className="flex items-center gap-2 text-xs text-green-400 mt-2">
-                    <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                    <span>MQTT Connected</span>
-                  </div>
-                )}
-              </div>
+                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  <span>MQTT Connected</span>
+                </div>
+              )}
+            </div>
 
               {/* 分隔线 */}
               <div className="border-t border-white/10 pt-4 mt-4">
@@ -815,7 +815,7 @@ export default function SimulatorPage() {
                       disabled={isDeviceRegistered}
                       className="flex-1 px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
-                    <button
+            <button
                       onClick={async () => {
                         if (!isMQTTConnected) {
                           alert('Please connect to MQTT broker first');
@@ -891,10 +891,10 @@ export default function SimulatorPage() {
                         isDeviceRegistered
                           ? 'bg-gray-500/20 border border-gray-500/50 text-gray-400'
                           : 'bg-green-500/20 border border-green-500/50 text-green-200 hover:bg-green-500/30'
-                      }`}
-                    >
+              }`}
+            >
                       Register
-                    </button>
+            </button>
                   </div>
                 </div>
 
@@ -902,7 +902,7 @@ export default function SimulatorPage() {
                 <div className="space-y-3 mt-4 pt-4 border-t border-white/10">
                   <label className="block text-sm text-white/70 mb-2">Device Commands</label>
                   <div className="flex gap-2">
-                    <button
+                <button
                       onClick={async () => {
                         if (!isMQTTConnected) {
                           alert('Please connect to MQTT broker first');
@@ -974,7 +974,7 @@ export default function SimulatorPage() {
                       className="flex-1 px-6 py-2 bg-green-500/20 border border-green-500/50 text-green-200 rounded-lg hover:bg-green-500/30 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 active:opacity-80"
                     >
                       Start
-                    </button>
+                </button>
                     <button
                       onClick={async () => {
                         if (!isMQTTConnected) {
@@ -1170,7 +1170,7 @@ export default function SimulatorPage() {
                     >
                       {motionState === MotionState.PAUSED ? "Resume" : "Pause"}
                     </button>
-                    <button
+                  <button
                       onClick={async () => {
                         if (!isMQTTConnected) {
                           alert('Please connect to MQTT broker first');
@@ -1236,9 +1236,9 @@ export default function SimulatorPage() {
                       className="flex-1 px-6 py-2 bg-red-500/20 border border-red-500/50 text-red-200 rounded-lg hover:bg-red-500/30 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 active:opacity-80"
                     >
                       Stop
-                    </button>
-                  </div>
+                  </button>
                 </div>
+                        </div>
 
                 {/* 运动规划任务指令发送区 */}
                 <div className="space-y-3 mt-4 pt-4 border-t border-white/10">
@@ -1260,7 +1260,7 @@ export default function SimulatorPage() {
                         </option>
                       ))}
                     </select>
-                  </div>
+                        </div>
 
                   {/* 文件上传 */}
                   <div>
@@ -1272,7 +1272,7 @@ export default function SimulatorPage() {
                       disabled={!isMQTTConnected || !deviceToken.trim()}
                       className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500/20 file:text-blue-200 hover:file:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
-                  </div>
+              </div>
 
                   {/* 下发任务按钮 */}
                   <button
@@ -1292,8 +1292,8 @@ export default function SimulatorPage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
                 <h2 className="text-xl md:text-2xl text-white font-medium">
-                  3D Device Visualization
-                </h2>
+              3D Device Visualization
+            </h2>
                 <div className="flex items-center gap-2">
                   <label className="text-xs text-white/60">Control Interval (s):</label>
                   <input
@@ -1394,7 +1394,7 @@ export default function SimulatorPage() {
             >
               Clear
             </button>
-          </div>
+      </div>
           <div className="bg-black/30 rounded-lg border border-white/10 p-4 h-[200px] overflow-y-auto space-y-1 font-mono text-sm">
             {motionLogs.length === 0 ? (
               <div className="text-white/30 text-center py-4">No motion logs yet</div>
@@ -1405,7 +1405,7 @@ export default function SimulatorPage() {
                     {new Date(log.timestamp).toLocaleTimeString()}
                   </span>
                   <span className="ml-2">{log.message}</span>
-                </div>
+    </div>
               ))
             )}
           </div>
