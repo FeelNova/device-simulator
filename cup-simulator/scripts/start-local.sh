@@ -8,10 +8,10 @@ if [[ "$(uname -s)" != "Linux" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$SCRIPT_DIR/cup-simulator"
+APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [[ ! -f "$APP_DIR/package.json" ]]; then
-  echo "Cannot find cup-simulator/package.json under: $SCRIPT_DIR" >&2
+  echo "Cannot find package.json under: $APP_DIR" >&2
   exit 1
 fi
 

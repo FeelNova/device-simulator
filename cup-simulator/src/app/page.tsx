@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { useSimulator } from '@/hooks/useSimulator';
 import { useMQTT, MQTTLog } from '@/hooks/useMQTT';
 import * as protobuf from 'protobufjs';
@@ -13,9 +14,17 @@ import { decodeDeviceMotionMessage } from '@/lib/protobuf/decoder';
 import { DeviceMotionMessage, DeviceHeartbeat, ControlMessage } from '@/lib/protobuf/types';
 import { encodeDeviceHeartbeat } from '@/lib/protobuf/encoder';
 import { MotionState } from '@/lib/motion/motionPlanner';
-import RhythmCanvas from '@/components/RhythmCanvas';
 import StrokeTimelineChart from '@/components/simulator/StrokeTimelineChart';
 import RotationTimelineChart from '@/components/simulator/RotationTimelineChart';
+
+const RhythmCanvas = dynamic(() => import('@/components/RhythmCanvas'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full min-h-[500px] bg-black/20 rounded-lg flex items-center justify-center">
+      <div className="text-white/50">Loading 3D scene...</div>
+    </div>
+  ),
+});
 
 // 调试数据类型
 interface DebugMessage {
@@ -37,6 +46,170 @@ interface MotionTask {
 }
 
 const MAX_DEBUG_MESSAGES = 100; // 最大消息数量
+
+const COMMAND_TYPE_NAMES: Record<number, string> = {
+  0: 'COMMAND_UNSPECIFIED',
+  1: 'COMMAND_START',
+  2: 'COMMAND_STOP',
+  3: 'COMMAND_TASK',
+};
+
+const CONTROL_COMMAND_NAMES: Record<number, string> = {
+  0: 'COMMAND_UNSPECIFIED',
+  1: 'COMMAND_RESET',
+  2: 'COMMAND_PAUSE',
+  3: 'COMMAND_RESUME',
+  4: 'COMMAND_SET_INTENSITY',
+};
+
+const DIRECTION_NAMES: Record<number, string> = {
+  0: 'DIRECTION_DOWN',
+  1: 'DIRECTION_UP',
+};
+
+const ROTATION_DIRECTION_NAMES: Record<number, string> = {
+  0: 'ROT_DIR_CLOCKWISE',
+  1: 'ROT_DIR_COUNTER_CLOCKWISE',
+};
+
+const formatEnumValue = (value: unknown, names: Record<number, string>): string | unknown => {
+  if (typeof value !== 'number') {
+    return value;
+  }
+
+  return `${names[value] || 'UNKNOWN'} (${value})`;
+};
+
+const getCommandTypeNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const matched = Object.entries(COMMAND_TYPE_NAMES).find(([, name]) => name === value);
+    return matched ? Number(matched[0]) : undefined;
+  }
+
+  return undefined;
+};
+
+const toByteArray = (value: unknown): number[] => {
+  if (value instanceof Uint8Array) {
+    return Array.from(value);
+  }
+
+  if (Array.isArray(value) && value.every((item) => typeof item === 'number')) {
+    return value;
+  }
+
+  return [];
+};
+
+const formatHexPreview = (bytes: number[], limit = 64): string => {
+  const preview = bytes
+    .slice(0, limit)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join(' ');
+
+  return bytes.length > limit ? `${preview} ...` : preview;
+};
+
+const toPlainDebugValue = (value: any): any => {
+  if (value instanceof Uint8Array) {
+    const bytes = Array.from(value);
+    return {
+      byteLength: bytes.length,
+      hexPreview: formatHexPreview(bytes),
+    };
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(toPlainDebugValue);
+  }
+
+  if (value && typeof value === 'object') {
+    if (typeof value.toNumber === 'function') {
+      return value.toNumber();
+    }
+
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [key, toPlainDebugValue(nestedValue)])
+    );
+  }
+
+  return value;
+};
+
+const getMotionBodyType = (motionMessage: any): 'config' | 'session' | 'control' | undefined => {
+  if (typeof motionMessage?.body === 'string') {
+    return motionMessage.body;
+  }
+
+  if (motionMessage?.body?.config || motionMessage?.config) {
+    return 'config';
+  }
+
+  if (motionMessage?.body?.session || motionMessage?.session) {
+    return 'session';
+  }
+
+  if (motionMessage?.body?.control || motionMessage?.control) {
+    return 'control';
+  }
+
+  return undefined;
+};
+
+const formatDecodedMotionMessage = (motionMessage: any): any => {
+  const body = getMotionBodyType(motionMessage);
+  const config = motionMessage?.config || motionMessage?.body?.config;
+  const session = motionMessage?.session || motionMessage?.body?.session;
+  const control = motionMessage?.control || motionMessage?.body?.control;
+
+  if (body === 'config' && config) {
+    return {
+      messageType: 'DeviceMotionMessage',
+      body,
+      config: {
+        primitives: (config.primitives || []).map((primitive: any) => ({
+          primitiveId: primitive.primitiveId,
+          movements: (primitive.movements || []).map((movement: any) => ({
+            ...toPlainDebugValue(movement),
+            directionName: formatEnumValue(movement.direction, DIRECTION_NAMES),
+            rotationDirectionName: formatEnumValue(movement.rotationDirection, ROTATION_DIRECTION_NAMES),
+          })),
+        })),
+      },
+    };
+  }
+
+  if (body === 'session' && session) {
+    return {
+      messageType: 'DeviceMotionMessage',
+      body,
+      session: {
+        units: (session.units || []).map((unit: any) => toPlainDebugValue(unit)),
+      },
+    };
+  }
+
+  if (body === 'control' && control) {
+    return {
+      messageType: 'DeviceMotionMessage',
+      body,
+      control: {
+        ...toPlainDebugValue(control),
+        commandName: formatEnumValue(control.command, CONTROL_COMMAND_NAMES),
+      },
+    };
+  }
+
+  return {
+    messageType: 'DeviceMotionMessage',
+    body: body || 'unknown',
+    raw: toPlainDebugValue(motionMessage),
+  };
+};
 
 export default function SimulatorPage() {
   // 生成唯一的 clientId，确保每个浏览器会话都有唯一的标识
@@ -135,31 +308,42 @@ export default function SimulatorPage() {
     URL.revokeObjectURL(url);
   }, []);
 
-  // 渲染消息数据，特殊处理 commandType=3 的情况
+  // 渲染消息数据，特殊处理 DeviceCommand.commandData 的情况
   const renderMessageData = useCallback((data: any, textColorClass: string = '', messageId?: string) => {
-    // 如果 commandType=3 且 commandData 不为空，特殊处理
-    if (data.commandType === 3 && data.commandData && data.commandData.length > 0) {
-      // 创建新的对象，排除 commandData
-      const { commandData, decodedCommandData, ...rest } = data;
-      
-      // 构建显示对象
-      const displayData = { ...rest };
-      
+    const commandDataBytes = toByteArray(data?.commandData);
+    const commandType = getCommandTypeNumber(data?.commandType);
+    const hasCommandData = commandDataBytes.length > 0;
+
+    if (hasCommandData || data?.decodedCommandData) {
+      const { decodedCommandData, ...rest } = data;
+      const displayData: Record<string, any> = { ...rest };
+      delete displayData.commandData;
+
+      if (commandType !== undefined && !displayData.commandTypeName) {
+        displayData.commandTypeName = formatEnumValue(commandType, COMMAND_TYPE_NAMES);
+      }
+
+      if (hasCommandData && displayData.commandDataLength === undefined) {
+        displayData.commandDataLength = commandDataBytes.length;
+      }
+
+      if (hasCommandData && displayData.commandDataHexPreview === undefined) {
+        displayData.commandDataHexPreview = formatHexPreview(commandDataBytes);
+      }
+
       if (decodedCommandData) {
-        // 反序列化成功
         displayData['commandData (decoded)'] = decodedCommandData;
-      } else {
-        // 反序列化失败
+      } else if (hasCommandData) {
         displayData['commandData (decoded)'] = 'decoded failed';
       }
-      
+
       return (
         <div>
           {Object.entries(displayData).map(([key, value]) => {
             const isDecodedData = key === 'commandData (decoded)';
             // 为每个消息生成唯一 ID（使用消息的 ID 或 timestamp 和 key）
             const uniqueId = messageId ? `${messageId}-${key}` : `${data.timestamp || Date.now()}-${key}`;
-            const isCollapsed = collapsedDecodedData[uniqueId] !== false; // 默认 true（折叠）
+            const isCollapsed = collapsedDecodedData[uniqueId] === true;
             
             return (
               <div key={key} className="mb-1">
@@ -260,7 +444,7 @@ export default function SimulatorPage() {
     // 添加到 Subscribed 区域
     try {
       // 尝试解码 DeviceCommand 消息
-      if (topic === `device/command/${deviceToken}`) {
+      if (topic.startsWith('device/command/')) {
         try {
           const root = await protobuf.load('/device.proto');
           const DeviceCommand = root.lookupType('com.sexToy.proto.DeviceCommand');
@@ -280,13 +464,17 @@ export default function SimulatorPage() {
           }
           if (decoded.commandType !== undefined && decoded.commandType !== null) {
             messageObj.commandType = decoded.commandType;
+            messageObj.commandTypeName = formatEnumValue(decoded.commandType, COMMAND_TYPE_NAMES);
           }
-          if (decoded.commandData !== undefined && decoded.commandData !== null && decoded.commandData.length > 0) {
+          const commandDataBytes = toByteArray(decoded.commandData);
+          if (commandDataBytes.length > 0) {
             // commandData 是 bytes，转换为数组以便 JSON 序列化
-            messageObj.commandData = Array.from(decoded.commandData);
+            messageObj.commandData = commandDataBytes;
+            messageObj.commandDataLength = commandDataBytes.length;
+            messageObj.commandDataHexPreview = formatHexPreview(commandDataBytes);
             
             console.log('[MQTT] 收到消息，commandType:', decoded.commandType);
-            console.log('[MQTT] commandData length:', decoded.commandData.length);
+            console.log('[MQTT] commandData length:', commandDataBytes.length);
             
             // 如果 commandType=3 (COMMAND_TASK)，尝试反序列化 commandData
             if (decoded.commandType === 3) {
@@ -294,7 +482,7 @@ export default function SimulatorPage() {
               try {
                 const decodedMotion = await decodeDeviceMotionMessage(decoded.commandData);
                 console.log('[MQTT] DeviceMotionMessage 解码成功:', decodedMotion);
-                messageObj.decodedCommandData = decodedMotion;
+                messageObj.decodedCommandData = formatDecodedMotionMessage(decodedMotion);
               } catch (error) {
                 console.error('[MQTT] DeviceMotionMessage 解码失败:', error);
                 // 反序列化失败时，不添加 decodedCommandData 字段
@@ -430,7 +618,7 @@ export default function SimulatorPage() {
     } catch (error) {
       console.error('Failed to process MQTT message:', error);
     }
-  }, [deviceToken, start, stop]);
+  }, [isRunning, motionState, motionTimeline.length, processMotionCommand, queueCommand, start, stop]);
 
   // 从 localStorage 加载运动任务
   useEffect(() => {
@@ -652,8 +840,9 @@ export default function SimulatorPage() {
           if (message.commandType === 3 && message.commandData && message.commandData.length > 0) {
             try {
               console.log('[SendTask] 开始解码 DeviceMotionMessage, 数据长度:', message.commandData.length);
-              decodedCommandData = await decodeDeviceMotionMessage(message.commandData);
-              console.log('[SendTask] 解码成功:', decodedCommandData);
+              const decodedMotion = await decodeDeviceMotionMessage(message.commandData);
+              decodedCommandData = formatDecodedMotionMessage(decodedMotion);
+              console.log('[SendTask] 解码成功:', decodedMotion);
             } catch (error) {
               console.error('[SendTask] 解码失败:', error);
             }
@@ -663,6 +852,7 @@ export default function SimulatorPage() {
           
           // 添加到 Published 区域
           const messageData = { ...message };
+          messageData.commandTypeName = formatEnumValue(message.commandType, COMMAND_TYPE_NAMES);
           if (decodedCommandData) {
             messageData.decodedCommandData = decodedCommandData;
           }
@@ -1141,10 +1331,11 @@ export default function SimulatorPage() {
                                 type: 'upstream' as const,
                                 data: {
                                   ...message,
-                                  decodedCommandData: {
+                                  commandTypeName: formatEnumValue(message.commandType, COMMAND_TYPE_NAMES),
+                                  decodedCommandData: formatDecodedMotionMessage({
                                     body: 'control',
                                     control: controlMessage
-                                  }
+                                  })
                                 },
                                 clientId: currentClientId,
                                 topic: topic,
