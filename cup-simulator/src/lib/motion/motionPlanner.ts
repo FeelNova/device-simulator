@@ -31,12 +31,53 @@ export interface MotionLog {
 // Primitive缓存
 type PrimitivesCache = Map<string, Primitive>;
 
+interface RuntimeSegmentPlan {
+  offset: number;
+  duration: number;
+  strokeSpeed: number;
+  rotationSpeed: number;
+  strokeDistanceBefore: number;
+  rotationBefore: number;
+  modePrefix: 'session' | 'interval';
+}
+
+interface RuntimeUnitPlan {
+  unitIndex: number;
+  primitiveId: string;
+  iteration: number;
+  intensity: number;
+  offset: number;
+  duration: number;
+  iterationDuration: number;
+  strokeDistanceBefore: number;
+  strokeDistancePerIteration: number;
+  rotationBefore: number;
+  rotationPerIteration: number;
+  segments: RuntimeSegmentPlan[];
+}
+
+interface RuntimeTimelinePlan {
+  startTime: number;
+  totalDuration: number;
+  initialStroke: number;
+  initialStrokeDirection: 1 | -1;
+  units: RuntimeUnitPlan[];
+}
+
+interface KeyframeResult {
+  frame: RhythmFrame;
+  strokeSpeed?: number;
+  unitIndex?: number;
+  primitiveId?: string;
+}
+
 /**
  * 运动规划器类
  */
 export class MotionPlanner {
   private primitivesCache: PrimitivesCache = new Map();
   private currentTimeline: TimelineKeyframe[] = [];
+  private runtimePlan: RuntimeTimelinePlan | null = null;
   private currentState: MotionState = MotionState.IDLE;
   private globalIntensity: number = 1.0; // 全局强度倍率（由SET_INTENSITY设置）
   private controlInterval: number = 2000; // 控制间隔（毫秒），默认 2 秒
@@ -47,6 +88,123 @@ export class MotionPlanner {
   private currentUnitIntensity: number = 1.0; // 当前 unit 的动态强度（可被 SET_INTENSITY 修改）
   private currentUnitIndex: number | null = null; // 当前执行的 unit 索引
   private originalUnitIntensities: Map<number, number> = new Map(); // 保存每个 unit 的原始 intensity
+
+  private clampStroke(stroke: number): number {
+    if (!Number.isFinite(stroke)) {
+      return 0.5;
+    }
+
+    return Math.max(0, Math.min(1, stroke));
+  }
+
+  private advanceStroke(startStroke: number, direction: 1 | -1, distance: number): { stroke: number; direction: 1 | -1 } {
+    const stroke = this.clampStroke(startStroke);
+    const currentDirection: 1 | -1 = direction >= 0 ? 1 : -1;
+    const remaining = Math.max(0, distance);
+
+    if (remaining === 0) {
+      return { stroke, direction: currentDirection };
+    }
+
+    const phase = currentDirection > 0 ? stroke + remaining : 2 - stroke + remaining;
+    const normalizedPhase = ((phase % 2) + 2) % 2;
+    const nextStroke = normalizedPhase <= 1 ? normalizedPhase : 2 - normalizedPhase;
+    const nextDirection: 1 | -1 = normalizedPhase < 1 ? 1 : -1;
+
+    return {
+      stroke: this.clampStroke(nextStroke),
+      direction: nextDirection
+    };
+  }
+
+  private createRuntimeKeyframe(plan: RuntimeTimelinePlan, relativeTime: number): KeyframeResult | null {
+    if (plan.units.length === 0) {
+      return null;
+    }
+
+    const clampedRelativeTime = Math.max(0, Math.min(relativeTime, plan.totalDuration));
+    let selectedUnit = plan.units[plan.units.length - 1];
+
+    for (const unit of plan.units) {
+      if (clampedRelativeTime >= unit.offset && clampedRelativeTime <= unit.offset + unit.duration) {
+        selectedUnit = unit;
+        break;
+      }
+    }
+
+    const unitElapsed = Math.max(0, Math.min(clampedRelativeTime - selectedUnit.offset, selectedUnit.duration));
+    const safeIterationDuration = Math.max(selectedUnit.iterationDuration, 1);
+    const iterationIndex = Math.min(
+      selectedUnit.iteration - 1,
+      Math.floor(unitElapsed / safeIterationDuration)
+    );
+    const iterationElapsed = Math.min(
+      unitElapsed - iterationIndex * safeIterationDuration,
+      selectedUnit.iterationDuration
+    );
+
+    let selectedSegment = selectedUnit.segments[selectedUnit.segments.length - 1];
+    for (const segment of selectedUnit.segments) {
+      if (iterationElapsed >= segment.offset && iterationElapsed <= segment.offset + segment.duration) {
+        selectedSegment = segment;
+        break;
+      }
+    }
+
+    const segmentElapsed = Math.max(
+      0,
+      Math.min(iterationElapsed - selectedSegment.offset, selectedSegment.duration)
+    );
+    const strokeDistance =
+      selectedUnit.strokeDistanceBefore +
+      iterationIndex * selectedUnit.strokeDistancePerIteration +
+      selectedSegment.strokeDistanceBefore +
+      selectedSegment.strokeSpeed * (segmentElapsed / 1000);
+    const stroke = this.advanceStroke(
+      plan.initialStroke,
+      plan.initialStrokeDirection,
+      strokeDistance
+    ).stroke;
+    const rotation =
+      selectedUnit.rotationBefore +
+      iterationIndex * selectedUnit.rotationPerIteration +
+      selectedSegment.rotationBefore +
+      selectedSegment.rotationSpeed * (segmentElapsed / 1000);
+
+    return {
+      frame: {
+        t: clampedRelativeTime,
+        stroke,
+        rotation,
+        intensity: selectedUnit.intensity,
+        suck: 0.5,
+        mode: `${selectedSegment.modePrefix}_${selectedUnit.primitiveId}_iter${iterationIndex}`
+      },
+      strokeSpeed: selectedSegment.strokeSpeed,
+      unitIndex: selectedUnit.unitIndex,
+      primitiveId: selectedUnit.primitiveId
+    };
+  }
+
+  private createRuntimeSentinelTimeline(plan: RuntimeTimelinePlan): TimelineKeyframe[] {
+    const firstKeyframe = this.createRuntimeKeyframe(plan, 0);
+    const lastKeyframe = this.createRuntimeKeyframe(plan, plan.totalDuration);
+
+    if (!firstKeyframe || !lastKeyframe) {
+      return [];
+    }
+
+    return [
+      {
+        timestamp: 0,
+        ...firstKeyframe
+      },
+      {
+        timestamp: plan.totalDuration,
+        ...lastKeyframe
+      }
+    ];
+  }
 
   /**
    * 保存primitive配置
@@ -77,6 +235,7 @@ export class MotionPlanner {
     currentRotation: number,
     strokeSpeed: number,
     currentStroke: number,
+    strokeDirection: 1 | -1,
     unitIntensity: number,
     unitPrimitiveId: string,
     unitIndex: number,
@@ -95,33 +254,10 @@ export class MotionPlanner {
       const rotationDelta = rotationSpeed * (relativeTime / 1000); // 转换为秒
       const rotationPosition = currentRotation + rotationDelta;
       
-      // stroke 继续往复运动（使用与 movement 期间相同的逻辑）
-      let strokePosition: number;
-      if (strokeSpeed <= 0) {
-        strokePosition = currentStroke; // 如果速度为0，保持在当前位置
-      } else {
-        // 计算在间隔期间完成的往复次数
-        const cycles = strokeSpeed * (intervalDuration / 1000); // 转换为秒
-        const cycleProgress = (relativeTime / intervalDuration) * cycles;
-        // 从当前位置继续，需要计算当前 stroke 位置对应的相位偏移
-        // 如果 currentStroke 在上升阶段（0-0.5），相位偏移为 currentStroke/2
-        // 如果 currentStroke 在下降阶段（0.5-1），相位偏移为 1 - (1-currentStroke)/2
-        let phaseOffset = 0;
-        if (currentStroke < 0.5) {
-          phaseOffset = currentStroke / 2; // 上升阶段
-        } else {
-          phaseOffset = 1 - (1 - currentStroke) / 2; // 下降阶段
-        }
-        const cyclePhase = (cycleProgress + phaseOffset) % 1;
-        
-        // 锯齿波：每个周期从0到1再到0
-        if (cyclePhase < 0.5) {
-          strokePosition = cyclePhase * 2;
-        } else {
-          strokePosition = 2 - (cyclePhase * 2);
-        }
-        strokePosition = Math.max(0, Math.min(1, strokePosition));
-      }
+      const strokeDistance = strokeSpeed * (relativeTime / 1000);
+      const strokePosition = strokeSpeed <= 0
+        ? currentStroke
+        : this.advanceStroke(currentStroke, strokeDirection, strokeDistance).stroke;
       
       keyframes.push({
         timestamp,
@@ -155,6 +291,7 @@ export class MotionPlanner {
     this.currentUnitIndex = null;
     this.currentUnitIntensity = 1.0;
     this.originalUnitIntensities.clear();
+    this.runtimePlan = null;
     
     if (!session.units || session.units.length === 0) {
       console.warn('[MotionPlanner] 无units，无法生成时间线');
@@ -164,11 +301,11 @@ export class MotionPlanner {
 
     console.log('[MotionPlanner] units 数量:', session.units.length);
 
-    const timeline: TimelineKeyframe[] = [];
     let currentTime = startTime;
-    let currentStroke = 0.5; // 初始位置（中间）
-    let currentRotation = 0;
+    let cumulativeStrokeDistance = 0;
+    let cumulativeRotation = 0;
     let validUnitsCount = 0;
+    const units: RuntimeUnitPlan[] = [];
 
     // 遍历所有units
     for (let unitIndex = 0; unitIndex < session.units.length; unitIndex++) {
@@ -206,191 +343,107 @@ export class MotionPlanner {
       
       // 使用原始 intensity 计算（动态强度会在生成帧时应用）
       const unitIntensity = originalIntensity * this.globalIntensity;
-      const iteration = unit.iteration || 1;
+      const iteration = Math.max(1, Math.floor(Number(unit.iteration) || 1));
       console.log('[MotionPlanner] unitIntensity:', unitIntensity, 'iteration:', iteration, 'originalIntensity:', originalIntensity);
       
       // 注意：不在生成timeline时添加日志，而是在执行时检测unit切换后添加
 
-      // 保存最后一个 movement 的旋转速度和 stroke 速度，用于间隔期间
-      let lastRotationSpeed = 0;
-      let lastStrokeSpeed = 0;
+      const movements = primitive.movements || [];
+      const segments: RuntimeSegmentPlan[] = [];
+      let iterationDuration = 0;
+      let iterationStrokeDistance = 0;
+      let iterationRotationDelta = 0;
 
-      // 重复执行iteration次
-      for (let iter = 0; iter < iteration; iter++) {
-        // 遍历primitive中的所有movements
-        const movements = primitive.movements || [];
-        for (let movementIndex = 0; movementIndex < movements.length; movementIndex++) {
-          const movement = movements[movementIndex];
-          const movementDuration = (movement.duration || 0) * 1000; // 转换为毫秒
-          const movementStartTime = currentTime;
-          const endTime = currentTime + movementDuration;
+      for (let movementIndex = 0; movementIndex < movements.length; movementIndex++) {
+        const movement = movements[movementIndex];
+        const movementDuration = Math.max(0, (movement.duration || 0) * 1000);
+        const strokeSpeed = (movement.distance || 0) * unitIntensity / (movement.duration || 1);
+        const rotationSpeed = 0;
 
-          // 计算速度（应用intensity倍率）
-          // 根据 motion_desc.md: distance / duration = 垂直运动速度（完整行程/秒）
-          // strokeSpeed 表示每秒完成的完整往复次数
-          const strokeSpeed = (movement.distance || 0) * unitIntensity / (movement.duration || 1);
-          
-          // rotation 已经是旋转速度（圈数/秒），不需要除以 duration
-          // rotationDirection: 0=逆时针(负值), 1=顺时针(正值)
-          const baseRotationSpeed = (movement.rotation || 0) * unitIntensity;
-          const rotationSpeed = movement.rotationDirection === 0 
-            ? -baseRotationSpeed  // 逆时针，使用负值
-            : baseRotationSpeed;  // 顺时针，使用正值
+        if (movementDuration > 0) {
+          segments.push({
+            offset: iterationDuration,
+            duration: movementDuration,
+            strokeSpeed,
+            rotationSpeed,
+            strokeDistanceBefore: iterationStrokeDistance,
+            rotationBefore: iterationRotationDelta,
+            modePrefix: 'session'
+          });
 
-          // console.log('[MotionPlanner] 生成关键帧:', {
-          //   iter,
-          //   movement: {
-          //     distance: movement.distance,
-          //     duration: movement.duration,
-          //     rotation: movement.rotation,
-          //     rotationDirection: movement.rotationDirection
-          //   },
-          //   movementStartTime,
-          //   endTime,
-          //   strokeSpeed,
-          //   rotationSpeed,
-          //   currentStroke,
-          //   currentRotation
-          // });
+          iterationDuration += movementDuration;
+          iterationStrokeDistance += strokeSpeed * (movementDuration / 1000);
+          iterationRotationDelta += rotationSpeed * (movementDuration / 1000);
+        }
 
-          // 计算在duration时间内完成的往复次数
-          const cycles = strokeSpeed * (movement.duration || 0);
-          
-          // 生成往复运动的关键帧序列
-          // 使用锯齿波实现全行程（0-1）的往复运动
-          // 关键帧间隔：每50ms一个关键帧，确保平滑
-          const keyframeInterval = 50; // 毫秒
-          const numKeyframes = Math.max(2, Math.ceil(movementDuration / keyframeInterval));
-          
-          for (let i = 0; i <= numKeyframes; i++) {
-            const relativeTime = (i / numKeyframes) * movementDuration;
-            const timestamp = movementStartTime + relativeTime;
-            
-            // 计算往复运动的位置（0-1）
-            // 使用锯齿波实现全行程（0-1）的往复运动
-            // 每个movement都从0开始，实现全行程往复
-            let strokePosition: number;
-            if (cycles <= 0 || strokeSpeed <= 0) {
-              // 如果速度为0，保持在0位置（全行程往复的起始位置）
-              strokePosition = 0;
-            } else {
-              // 计算当前在哪个往复周期中
-              const cycleProgress = (relativeTime / movementDuration) * cycles;
-              const cyclePhase = cycleProgress % 1; // 0-1之间的相位
-              
-              // 锯齿波：每个周期从0到1再到0
-              if (cyclePhase < 0.5) {
-                // 上升阶段：0 -> 1
-                strokePosition = cyclePhase * 2;
-              } else {
-                // 下降阶段：1 -> 0
-                strokePosition = 2 - (cyclePhase * 2);
-              }
-              
-              // 确保在0-1范围内
-              strokePosition = Math.max(0, Math.min(1, strokePosition));
-            }
-            
-            // 计算累积旋转（旋转是累积的，不是往复的）
-            const rotationDelta = rotationSpeed * (relativeTime / 1000); // 转换为秒
-            const rotationPosition = currentRotation + rotationDelta;
-            
-            timeline.push({
-              timestamp,
-              frame: {
-                t: timestamp,
-                stroke: strokePosition,
-                rotation: rotationPosition,
-                intensity: unitIntensity,
-                suck: 0.5, // 默认值
-                mode: `session_${unit.primitiveId}_iter${iter}`
-              },
-              strokeSpeed: strokeSpeed, // 存储当前 movement 的 stroke 速度
-              unitIndex: unitIndex, // 存储当前 unit 的索引
-              primitiveId: unit.primitiveId // 存储当前 primitive 的 ID
-            });
-          }
+        if (movementIndex < movements.length - 1 && this.controlInterval > 0) {
+          segments.push({
+            offset: iterationDuration,
+            duration: this.controlInterval,
+            strokeSpeed,
+            rotationSpeed,
+            strokeDistanceBefore: iterationStrokeDistance,
+            rotationBefore: iterationRotationDelta,
+            modePrefix: 'interval'
+          });
 
-          // 更新当前值和时间
-          // 注意：每个movement都从0开始全行程往复，所以currentStroke在movement结束时重置为0
-          // 但为了保持连续性，我们计算结束时的位置（虽然下一个movement会从0开始）
-          const finalCycleProgress = cycles % 1;
-          if (cycles > 0 && strokeSpeed > 0) {
-            if (finalCycleProgress < 0.5) {
-              currentStroke = finalCycleProgress * 2;
-            } else {
-              currentStroke = 2 - (finalCycleProgress * 2);
-            }
-            currentStroke = Math.max(0, Math.min(1, currentStroke));
-          } else {
-            // 如果速度为0，保持在0位置
-            currentStroke = 0;
-          }
-          // 旋转是累积的
-          currentRotation = currentRotation + rotationSpeed * (movement.duration || 0);
-          // 保存最后一个 movement 的旋转速度和 stroke 速度
-          lastRotationSpeed = rotationSpeed;
-          lastStrokeSpeed = strokeSpeed;
-          currentTime = endTime;
-          
-          // 在 movement 之间添加 control_interval（除了最后一个 movement）
-          if (movementIndex < movements.length - 1) {
-            // 生成间隔期间的关键帧，保持旋转累积和 stroke 往复运动
-            const intervalKeyframes = this.generateIntervalKeyframes(
-              currentTime,
-              this.controlInterval,
-              rotationSpeed, // 使用当前 movement 的旋转速度
-              currentRotation,
-              strokeSpeed, // 使用当前 movement 的 stroke 速度
-              currentStroke, // 使用当前 stroke 位置
-              unitIntensity,
-              unit.primitiveId,
-              unitIndex, // 传入当前 unit 的索引
-              iter,
-              `movement${movementIndex}`
-            );
-            timeline.push(...intervalKeyframes);
-            
-            // 更新旋转值和 stroke 位置（在间隔期间继续累积/往复）
-            currentRotation = currentRotation + rotationSpeed * (this.controlInterval / 1000);
-            // 更新 stroke 位置：计算间隔结束时的位置
-            if (strokeSpeed > 0) {
-              const intervalCycles = strokeSpeed * (this.controlInterval / 1000);
-              const intervalCycleProgress = intervalCycles % 1;
-              let phaseOffset = 0;
-              if (currentStroke < 0.5) {
-                phaseOffset = currentStroke / 2;
-              } else {
-                phaseOffset = 1 - (1 - currentStroke) / 2;
-              }
-              const finalCyclePhase = (intervalCycleProgress + phaseOffset) % 1;
-              if (finalCyclePhase < 0.5) {
-                currentStroke = finalCyclePhase * 2;
-              } else {
-                currentStroke = 2 - (finalCyclePhase * 2);
-              }
-              currentStroke = Math.max(0, Math.min(1, currentStroke));
-            }
-            currentTime += this.controlInterval;
-          }
+          iterationDuration += this.controlInterval;
+          iterationStrokeDistance += strokeSpeed * (this.controlInterval / 1000);
+          iterationRotationDelta += rotationSpeed * (this.controlInterval / 1000);
         }
       }
+
+      if (segments.length === 0 || iterationDuration <= 0) {
+        console.warn(`[MotionPlanner] primitiveId=${unit.primitiveId} 没有可执行movement`);
+        this.addLog(`SessionMessage: 跳过unit，primitiveId=${unit.primitiveId} 没有可执行movement`);
+        continue;
+      }
+
+      const unitDuration = iterationDuration * iteration;
+      units.push({
+        unitIndex,
+        primitiveId: unit.primitiveId,
+        iteration,
+        intensity: unitIntensity,
+        offset: currentTime - startTime,
+        duration: unitDuration,
+        iterationDuration,
+        strokeDistanceBefore: cumulativeStrokeDistance,
+        strokeDistancePerIteration: iterationStrokeDistance,
+        rotationBefore: cumulativeRotation,
+        rotationPerIteration: iterationRotationDelta,
+        segments
+      });
+
+      currentTime += unitDuration;
+      cumulativeStrokeDistance += iterationStrokeDistance * iteration;
+      cumulativeRotation += iterationRotationDelta * iteration;
     }
 
-    if (validUnitsCount > 0) {
+    if (validUnitsCount > 0 && units.length > 0) {
       const totalDuration = currentTime - startTime;
+      this.runtimePlan = {
+        startTime,
+        totalDuration,
+        initialStroke: 0.5,
+        initialStrokeDirection: 1,
+        units
+      };
+      const timeline = this.createRuntimeSentinelTimeline(this.runtimePlan);
+
       console.log('[MotionPlanner] 时间线生成完成:', {
         validUnitsCount,
         totalDuration,
-        keyframeCount: timeline.length
+        keyframeCount: timeline.length,
+        runtimeUnits: units.length
       });
       this.addLog(`SessionMessage: 开始执行Session，包含${validUnitsCount}个units，总时长${totalDuration}ms`);
-    } else {
-      console.warn('[MotionPlanner] 所有units都找不到对应的primitive，无法生成时间线');
-      this.addLog('SessionMessage: 所有units都找不到对应的primitive，无法生成时间线');
+      return timeline;
     }
 
-    return timeline;
+    console.warn('[MotionPlanner] 所有units都找不到对应的primitive，无法生成时间线');
+    this.addLog('SessionMessage: 所有units都找不到对应的primitive，无法生成时间线');
+    return [];
   }
 
   /**
@@ -405,6 +458,7 @@ export class MotionPlanner {
     switch (control.command) {
       case 1: // COMMAND_RESET
         this.currentTimeline = [];
+        this.runtimePlan = null;
         this.currentState = MotionState.IDLE;
         this.addLog('ControlMessage(RESET): 已重置运动，清空时间线');
         return {
@@ -470,6 +524,10 @@ export class MotionPlanner {
     }
 
     const relativeTime = currentTime - startTime;
+
+    if (this.runtimePlan) {
+      return this.createRuntimeKeyframe(this.runtimePlan, relativeTime);
+    }
 
     // 如果时间早于第一个关键帧，返回第一个关键帧
     if (relativeTime <= timeline[0].timestamp) {
@@ -615,4 +673,3 @@ export class MotionPlanner {
     return this.controlInterval;
   }
 }
-

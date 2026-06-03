@@ -17,11 +17,10 @@ export default function StrokeTimelineChart({ data }: StrokeTimelineChartProps) 
         data={data}
         label="Stroke Speed"
         minValue={0}
-        maxValue={2}
+        maxValue={10}
         color="#4a8ab8"
         timeWindow={10000}
       />
     </div>
   );
 }
-

@@ -16,6 +16,11 @@
 - `cup-simulator/unittests/` 包含 Python MQTT/protobuf 测试脚本和测试数据.
 - `cup-simulator/src/lib/protobuf/` 和 `cup-simulator/public/` 中有 protobuf 定义, 修改协议相关逻辑时要同步检查这些文件和 Python 生成文件.
 
+## Motion Planning Notes
+
+- 当前上下行程动画不要使用 `Movement.direction` 字段决定移动方向. 该字段当前协议流中不使用, stroke 应从当前 `stroke` 位置连续推进, 到达 0 或 1 边界后自然反向, 避免 ring 到顶部后跳到底部.
+- 当前不要按字面将 `Movement.rotation` 理解为 3D 旋转. 该字段在当前协议流里实际表示震动相关数值. `Movement.rotationDirection` 当前也不使用.
+
 ## Common Commands
 
 在 `cup-simulator/` 目录下运行前端命令:

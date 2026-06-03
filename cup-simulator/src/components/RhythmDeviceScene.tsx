@@ -7,7 +7,7 @@
 
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, Group, MeshPhysicalMaterial, TorusGeometry } from 'three';
+import { Group, MathUtils } from 'three';
 import { RhythmFrame } from '@/lib/rhythm/mockGenerator';
 
 interface RhythmDeviceSceneProps {
@@ -147,14 +147,14 @@ function TechLines({ intensity }: { intensity: number }) {
 }
 
 // 发光能量环组件
-function EnergyRings({ intensity, yPosition }: { intensity: number; yPosition: number }) {
+function EnergyRings({ intensity, yPosition, radius }: { intensity: number; yPosition: number; radius: number }) {
   const ringIntensity = useMemo(() => 0.8 + intensity * 1.2, [intensity]);
   
   return (
     <group position={[0, yPosition, 0]}>
       {/* 上边缘能量环 */}
       <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.75, 0.02, 16, 32]} />
+        <torusGeometry args={[radius, 0.02, 16, 48]} />
         <meshStandardMaterial
           color="#00aaff"
           emissive="#00ffff"
@@ -165,7 +165,7 @@ function EnergyRings({ intensity, yPosition }: { intensity: number; yPosition: n
       </mesh>
       {/* 下边缘能量环 */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, -0.3, 0]}>
-        <torusGeometry args={[0.75, 0.02, 16, 32]} />
+        <torusGeometry args={[radius, 0.02, 16, 48]} />
         <meshStandardMaterial
           color="#00aaff"
           emissive="#00ffff"
@@ -191,7 +191,6 @@ function OuterSleeve({
   intensity: number;
 }) {
   const sleeveGroupRef = useRef<Group>(null);
-  const ringsRef = useRef<Mesh[]>([]);
 
   // 套筒尺寸参数
   const sleeveHeight = 0.6; // 套筒高度
@@ -207,27 +206,22 @@ function OuterSleeve({
   // 根据 intensity 调整发光
   const emissiveIntensity = useMemo(() => intensity * 0.6, [intensity]);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (sleeveGroupRef.current) {
       // 上下移动：根据 stroke 值
       const minY = -1.2;
       const maxY = 1.2;
-      sleeveGroupRef.current.position.y = minY + stroke * (maxY - minY);
+      const targetY = minY + stroke * (maxY - minY);
+      sleeveGroupRef.current.position.y = MathUtils.damp(
+        sleeveGroupRef.current.position.y,
+        targetY,
+        18,
+        delta
+      );
       
       // 旋转：根据 rotation 值
       sleeveGroupRef.current.rotation.y = rotation * Math.PI * 2;
     }
-    
-    // 更新所有圆环的半径（根据 suck 值动态调整）
-    const baseRadius = 0.75; // 基础半径
-    const currentRadius = outerRadiusMin + (1 - suck) * (outerRadiusMax - outerRadiusMin);
-    const scale = currentRadius / baseRadius;
-    
-    ringsRef.current.forEach((ring) => {
-      if (ring) {
-        ring.scale.set(scale, scale, 1); // 只缩放 X 和 Z，保持 Y 不变
-      }
-    });
   });
 
   // 创建旋转标记（用于显示旋转方向）
@@ -235,52 +229,33 @@ function OuterSleeve({
     return Array.from({ length: 4 }, (_, i) => {
       const angle = (i / 4) * Math.PI * 2;
       return {
-        x: Math.cos(angle) * 0.78,
-        z: Math.sin(angle) * 0.78,
+        x: Math.cos(angle) * (outerRadius + 0.025),
+        z: Math.sin(angle) * (outerRadius + 0.025),
         angle
       };
     });
-  }, []);
-
-  // 使用多个圆环堆叠创建空心套筒效果
-  const ringCount = 12; // 圆环数量，越多越平滑
-  const ringSpacing = sleeveHeight / ringCount;
-  const ringThickness = 0.08; // 圆环厚度
+  }, [outerRadius]);
 
   return (
     <group ref={sleeveGroupRef}>
-      {/* 使用多个水平圆环堆叠创建空心套筒 */}
-      {Array.from({ length: ringCount }, (_, i) => {
-        const y = (i - (ringCount - 1) / 2) * ringSpacing;
-        const baseRadius = 0.75; // 基础半径
-        
-        return (
-          <mesh
-            key={i}
-            ref={(el) => {
-              if (el) ringsRef.current[i] = el;
-            }}
-            position={[0, y, 0]}
-            rotation={[Math.PI / 2, 0, 0]} // 旋转到水平方向
-          >
-            <torusGeometry args={[baseRadius, ringThickness, 16, 32]} />
-            <meshPhysicalMaterial
-              color="#c0c0c0"
-              metalness={0.8}
-              roughness={0.2}
-              transparent
-              opacity={opacity}
-              emissive="#808080"
-              emissiveIntensity={emissiveIntensity}
-              clearcoat={1.0}
-              clearcoatRoughness={0.1}
-              // Fresnel 效果（边缘发光）
-              transmission={0.2}
-              thickness={0.3}
-            />
-          </mesh>
-        );
-      })}
+      {/* 连续透明套筒。避免多层透明 torus 堆叠造成的深度排序闪烁。 */}
+      <mesh>
+        <cylinderGeometry args={[outerRadius, outerRadius, sleeveHeight, 64, 1, true]} />
+        <meshPhysicalMaterial
+          color="#c0c0c0"
+          metalness={0.8}
+          roughness={0.2}
+          transparent
+          opacity={opacity}
+          depthWrite={false}
+          emissive="#808080"
+          emissiveIntensity={emissiveIntensity}
+          clearcoat={1.0}
+          clearcoatRoughness={0.1}
+          transmission={0.08}
+          thickness={0.2}
+        />
+      </mesh>
       
       {/* 旋转标记 - 在套筒表面添加发光标记，使旋转更明显 */}
       {rotationMarkers.map((marker, index) => (
@@ -301,7 +276,7 @@ function OuterSleeve({
       ))}
       
       {/* 能量环 */}
-      <EnergyRings intensity={intensity} yPosition={sleeveHeight / 2 - 0.15} />
+      <EnergyRings intensity={intensity} yPosition={sleeveHeight / 2 - 0.15} radius={outerRadius} />
     </group>
   );
 }
