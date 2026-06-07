@@ -57,6 +57,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
       setCurrentFrame(frame);
       // 记录历史数据 - 限制数组长度，避免内存泄漏
       const now = Date.now();
+      let currentStrokeVelocity = 0;
       
       // 计算速度（变化率）
       if (previousFrameRef.current !== null && previousTimestampRef.current !== null) {
@@ -64,7 +65,8 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         if (timeDelta > 0) {
           const strokeDelta = frame.stroke - previousFrameRef.current.stroke;
           const rotationDelta = frame.rotation - previousFrameRef.current.rotation;
-          setStrokeVelocity(strokeDelta / timeDelta);
+          currentStrokeVelocity = strokeDelta / timeDelta;
+          setStrokeVelocity(currentStrokeVelocity);
           setRotationVelocity(rotationDelta / timeDelta);
         }
       }
@@ -73,7 +75,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
       previousTimestampRef.current = now;
       
       setStrokeHistory(prev => {
-        const newHistory = [...prev, { timestamp: now, value: frame.stroke }];
+        const newHistory = [...prev, { timestamp: now, value: Math.abs(currentStrokeVelocity) }];
         // 限制最大长度为1000，超过则只保留最新的
         return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
       });
@@ -245,9 +247,9 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         previousFrameRef.current = adjustedFrame;
         previousTimestampRef.current = now;
         
-        // 记录历史数据 - strokeHistory 存储速度值而不是位置值
+        // 记录历史数据 - strokeHistory 存储协议规划出来的速度值而不是位置值
         setStrokeHistory(prev => {
-          const newHistory = [...prev, { timestamp: now, value: adjustedStrokeSpeed }];
+          const newHistory = [...prev, { timestamp: now, value: Math.abs(adjustedStrokeSpeed) }];
           return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
         });
         setRotationHistory(prev => {
@@ -271,6 +273,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     const elapsed = now - startTimeRef.current;
     const frame = mockRhythm(elapsed);
     setCurrentFrame(frame);
+    let currentStrokeVelocity = 0;
     
     // 计算速度（变化率）
     if (previousFrameRef.current !== null && previousTimestampRef.current !== null) {
@@ -278,7 +281,8 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
       if (timeDelta > 0) {
         const strokeDelta = frame.stroke - previousFrameRef.current.stroke;
         const rotationDelta = frame.rotation - previousFrameRef.current.rotation;
-        setStrokeVelocity(strokeDelta / timeDelta);
+        currentStrokeVelocity = strokeDelta / timeDelta;
+        setStrokeVelocity(currentStrokeVelocity);
         setRotationVelocity(rotationDelta / timeDelta);
       }
     }
@@ -288,7 +292,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     
       // 记录历史数据
     setStrokeHistory(prev => {
-      const newHistory = [...prev, { timestamp: now, value: frame.stroke }];
+      const newHistory = [...prev, { timestamp: now, value: Math.abs(currentStrokeVelocity) }];
       return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
     });
     setRotationHistory(prev => {
@@ -333,6 +337,13 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
       console.log('[Motion] 时间线前3个关键帧:', timeline.slice(0, 3));
       
       if (timeline.length > 0) {
+        setStrokeHistory([]);
+        setRotationHistory([]);
+        setStrokeVelocity(0);
+        setRotationVelocity(0);
+        setCurrentStrokeSpeed(0);
+        previousFrameRef.current = null;
+        previousTimestampRef.current = null;
         setMotionTimeline(timeline);
         timelineStartTimeRef.current = Date.now();
         setMotionState(MotionState.RUNNING);
@@ -583,4 +594,3 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
     clearMotionLogs
   };
 }
-
