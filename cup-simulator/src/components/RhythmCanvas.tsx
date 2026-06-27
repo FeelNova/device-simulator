@@ -14,6 +14,7 @@ import { RhythmFrame } from '@/lib/rhythm/mockGenerator';
 
 interface RhythmCanvasProps {
   frame: RhythmFrame | null;
+  active?: boolean;
 }
 
 function LoadingFallback() {
@@ -109,13 +110,14 @@ function CanvasContent({ frame, controlsRef }: {
   );
 }
 
-export default function RhythmCanvas({ frame }: RhythmCanvasProps) {
+export default function RhythmCanvas({ frame, active = false }: RhythmCanvasProps) {
   const controlsRef = useRef<any>(null);
 
   return (
     <div className="w-full h-full bg-black/20 rounded-lg overflow-visible relative z-10">
       <Suspense fallback={<LoadingFallback />}>
         <Canvas
+          frameloop={active ? 'always' : 'demand'}
           gl={{ 
             antialias: true, 
             alpha: false,
@@ -137,4 +139,3 @@ export default function RhythmCanvas({ frame }: RhythmCanvasProps) {
     </div>
   );
 }
-

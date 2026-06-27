@@ -19,6 +19,7 @@ interface TimelineChartProps {
   maxValue: number;
   color: string;
   timeWindow: number; // 时间窗口（毫秒），默认10秒
+  active?: boolean;
 }
 
 export default function TimelineChart({
@@ -27,18 +28,23 @@ export default function TimelineChart({
   minValue,
   maxValue,
   color,
-  timeWindow = 10000
+  timeWindow = 10000,
+  active = false
 }: TimelineChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
   const canvasSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const drawRef = useRef<(() => void) | null>(null);
 
   // 将 data 存储在 ref 中，避免频繁触发 effect
   const dataRef = useRef(data);
   useEffect(() => {
     dataRef.current = data;
-  }, [data]);
+    if (!active) {
+      drawRef.current?.();
+    }
+  }, [data, active]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -205,6 +211,7 @@ export default function TimelineChart({
         ctx.fillText(label, paddingLeft, labelY);
       }
     };
+    drawRef.current = draw;
 
     // 设置画布尺寸
     const resizeCanvas = () => {
@@ -238,16 +245,25 @@ export default function TimelineChart({
     // 使用 ResizeObserver 监听容器尺寸变化
     const resizeObserver = new ResizeObserver(() => {
       resizeCanvas();
+      draw();
     });
     resizeObserver.observe(container);
 
-    // 动画循环
-    const animate = () => {
-      draw();
+    // 运动时以较低频率刷新图表；静止时只绘制一次，避免长期空转。
+    const frameInterval = 1000 / 15;
+    let lastDrawTime = 0;
+    const animate = (timestamp: number) => {
+      if (timestamp - lastDrawTime >= frameInterval) {
+        draw();
+        lastDrawTime = timestamp;
+      }
       animationFrameRef.current = requestAnimationFrame(animate);
     };
 
-    animate();
+    draw();
+    if (active) {
+      animationFrameRef.current = requestAnimationFrame(animate);
+    }
 
     // 监听窗口大小变化（作为备用）
     window.addEventListener('resize', resizeCanvas);
@@ -259,10 +275,11 @@ export default function TimelineChart({
       }
       resizeObserver.disconnect();
       window.removeEventListener('resize', resizeCanvas);
+      drawRef.current = null;
     };
     // 移除 data 依赖，使用 ref 来获取最新数据
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minValue, maxValue, color, timeWindow, label]);
+  }, [minValue, maxValue, color, timeWindow, label, active]);
 
   return (
     <div 
@@ -277,4 +294,3 @@ export default function TimelineChart({
     </div>
   );
 }
-

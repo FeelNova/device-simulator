@@ -9,9 +9,10 @@ import TimelineChart from './TimelineChart';
 
 interface RotationTimelineChartProps {
   data: Array<{ timestamp: number; value: number }>;
+  active?: boolean;
 }
 
-export default function RotationTimelineChart({ data }: RotationTimelineChartProps) {
+export default function RotationTimelineChart({ data, active = false }: RotationTimelineChartProps) {
   // 将 rotation 值从 -1 到 1 映射到 0 到 1
   const normalizedData = data.map(item => ({
     timestamp: item.timestamp,
@@ -27,8 +28,8 @@ export default function RotationTimelineChart({ data }: RotationTimelineChartPro
         maxValue={1}
         color="#d4a574"
         timeWindow={10000}
+        active={active}
       />
     </div>
   );
 }
-

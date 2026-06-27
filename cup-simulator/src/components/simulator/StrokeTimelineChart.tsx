@@ -8,9 +8,10 @@ import TimelineChart from './TimelineChart';
 
 interface StrokeTimelineChartProps {
   data: Array<{ timestamp: number; value: number }>;
+  active?: boolean;
 }
 
-export default function StrokeTimelineChart({ data }: StrokeTimelineChartProps) {
+export default function StrokeTimelineChart({ data, active = false }: StrokeTimelineChartProps) {
   return (
     <div className="w-full h-full">
       <TimelineChart
@@ -20,6 +21,7 @@ export default function StrokeTimelineChart({ data }: StrokeTimelineChartProps) 
         maxValue={10}
         color="#4a8ab8"
         timeWindow={10000}
+        active={active}
       />
     </div>
   );

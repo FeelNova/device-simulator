@@ -93,9 +93,17 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
   const executeNextCommand = useCallback(() => {
     setCommandQueue(prev => {
       if (prev.length === 0) {
-        // 队列为空，停止运动
+        // 队列为空，停止运动，保留最后一帧作为静止画面。
         setMotionTimeline([]);
         setMotionState(MotionState.IDLE);
+        setIsRunning(false);
+        setStrokeVelocity(0);
+        setRotationVelocity(0);
+        setCurrentStrokeSpeed(0);
+        timelineStartTimeRef.current = null;
+        pausedAtTimeRef.current = null;
+        currentUnitIndexRef.current = null;
+        currentSessionRef.current = null;
         return [];
       }
       
@@ -262,6 +270,8 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
         if (now - timelineStartTimeRef.current >= lastKeyframe.timestamp) {
           // 时间线结束，检查是否有待执行的指令
           executeNextCommand();
+          animationFrameRef.current = null;
+          return;
         }
       }
     } else {

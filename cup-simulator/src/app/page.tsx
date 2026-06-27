@@ -886,6 +886,8 @@ export default function SimulatorPage() {
     return () => clearInterval(cleanupInterval);
   }, []);
 
+  const isVisualizationActive = isRunning && motionState !== MotionState.PAUSED;
+
   return (
     <div className="min-h-screen bg-[#0c0e12] py-8 md:py-16">
       <div className="max-w-[1920px] mx-auto px-4 md:px-[120px]">
@@ -1527,7 +1529,7 @@ export default function SimulatorPage() {
             
             {/* 3D场景 - 确保在最上层，可以正常拖动 */}
             <div className="w-full h-[400px] md:h-[450px] lg:h-[500px] mb-4 relative z-10">
-              <RhythmCanvas frame={currentFrame} />
+              <RhythmCanvas frame={currentFrame} active={isVisualizationActive} />
             </div>
             
             {/* 图表区域 - 并排显示在3D场景下方，半透明背景 */}
@@ -1536,7 +1538,7 @@ export default function SimulatorPage() {
               <div className="h-[120px] md:h-[140px] flex flex-col bg-black/40 backdrop-blur-sm rounded-lg border border-white/10 p-1.5">
                 <h3 className="text-xs text-white/80 mb-0.5 flex-shrink-0 font-medium">Stroke Timeline</h3>
                 <div className="flex-1 min-h-0 overflow-hidden">
-                  <StrokeTimelineChart data={strokeHistory} />
+                  <StrokeTimelineChart data={strokeHistory} active={isVisualizationActive} />
                 </div>
               </div>
               
@@ -1544,7 +1546,7 @@ export default function SimulatorPage() {
               <div className="h-[120px] md:h-[140px] flex flex-col bg-black/40 backdrop-blur-sm rounded-lg border border-white/10 p-1.5">
                 <h3 className="text-xs text-white/80 mb-0.5 flex-shrink-0 font-medium">Rotation Timeline</h3>
                 <div className="flex-1 min-h-0 overflow-hidden">
-                  <RotationTimelineChart data={rotationHistory} />
+                  <RotationTimelineChart data={rotationHistory} active={isVisualizationActive} />
                 </div>
               </div>
             </div>
