@@ -1,12 +1,10 @@
 DeviceCommand消息中的commandData字段包含详细任务控制指令，详细任务指令是一个oneof body类型的消息，其中：
 
 全局控制：
-  1. 控制频率或控制周期：基于硬件现状以及期望效果，暂定控制周期为最小2秒一次，也就是最小运动单元的切换为2秒，举例，一个primitive中movement到下一个movement到切换为一个控制周期一次，例如下面的定义：
-         {"direction": 0, "distance": 0.2, "duration": 0.3, "rotation": 1.0, "rotation_direction": 1},
-          {"direction": 0, "distance": 0.3, "duration": 0.3, "rotation": 1.0, "rotation_direction": 1},
-  意味着 0.2/0.3的往复速度切换到0.3/0.3最少间隔2秒；
-  2.rotaion直接代表圈速，不根据duration值做二次计算；
-  以上意味着控制精度在不在一个行程（单向）内进行，直观来说，类似”三快一慢，二快一慢三快2慢“这种节奏，以及定义了快有多快，慢有多慢，而不用在一次行程内精细到三分之一多快，三分之二多慢这个粒度，也更利于调试；
+  1. movements 按数组顺序连续执行，不插入额外控制周期或固定间隔；
+  2. 每个 movement 的 duration 直接决定该段持续时间；
+  3. rotation 字段保持协议字段名不变，当前语义为震动强度，取值范围 0 到 1.0；GUI 文案显示为 Suction；
+  4. rotationDirection 当前协议流中不使用；
 
 
 ConfigMessage类型的消息体，代表手法配置说明，语义解析如下：
@@ -29,29 +27,29 @@ ConfigMessage类型的消息体，代表手法配置说明，语义解析如下�
    
    - duration：该 movement 的持续时间（单位：秒）
    
-   - rotation：旋转速度（1.0 = 完整一圈）
+   - rotation：震动强度（0 = 无震动，1.0 = 最大震动强度；GUI 中显示为 Suction）
    
-   - rotation_direction：旋转方向
+   - rotation_direction：当前不使用
      
-     0 = 逆时针
+     0 = 顺时针
      
-     1 = 顺时针
+     1 = 逆时针
    
    **语义说明**
    
    - distance除以duration相当于速度，也就是在这个duration内以某个速度垂直运动
    
-   - rotaion除以duration相当于转速，也就是在这个duration内以某个速度转动
+   - rotation 不除以 duration，不解释为圈数或转速；它直接表示该 movement 持续期间的震动强度
      
      - `distance / duration` = 垂直运动速度（完整行程/秒）
-     - `rotation / duration` = 旋转速度（圈数/秒）
+     - `rotation` = 震动强度（0 到 1.0）
      - 运动应该是**全行程（0-1）的上下往复运动**
    
    - movements 数组整体定义了该 primitive_id 对应的**完整手法运动模板**
    
    - movements 必须 **按数组顺序依次执行**
    
-   - 垂直运动与旋转在同一个 movement 中 **同步发生**
+   - 垂直运动与震动强度在同一个 movement 中 **同步发生**
 
 SessionMessage类型的消息体，代表详细的多通道运动控制，语义解析如下：
 
@@ -163,5 +161,5 @@ message ControlMessage {
 1.由于模拟器的垂直方向就是往复运动，所以可以忽略direction； 
 2.如果收到多个 详细任务控制指令，则排队按顺序执行即可；
 3.3d动画的渲染效果要和实际的运动情况表现一致；
-4. 计算出的运动速度参数以及形成的timeline表格：stroke，rotaion，suck需要和实际的运动情况表现一致；
+4. 计算出的运动速度参数以及形成的timeline表格：stroke，rotation/Suction需要和实际的运动情况表现一致；
 -->

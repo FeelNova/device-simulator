@@ -312,19 +312,6 @@ export class MotionPlanner {
           iterationStrokeDistance += strokeSpeed * (movementDuration / 1000);
         }
 
-        if (movementIndex < movements.length - 1 && this.controlInterval > 0) {
-          segments.push({
-            offset: iterationDuration,
-            duration: this.controlInterval,
-            strokeSpeed,
-            suctionLevel,
-            strokeDistanceBefore: iterationStrokeDistance,
-            modePrefix: 'interval'
-          });
-
-          iterationDuration += this.controlInterval;
-          iterationStrokeDistance += strokeSpeed * (this.controlInterval / 1000);
-        }
       }
 
       if (segments.length === 0 || iterationDuration <= 0) {
