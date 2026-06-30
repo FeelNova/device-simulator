@@ -6,7 +6,7 @@
 export interface RhythmFrame {
   t: number;        // 时间戳
   stroke: number;   // 0-1
-  rotation: number; // -1 to 1
+  rotation: number; // 0-1, protocol field shown as suction strength in the GUI
   intensity: number; // 0-1
   suck: number;     // 0-1 (0=完全放松, 1=完全收缩)
   mode: string;
@@ -24,8 +24,8 @@ export function mockRhythm(t: number): RhythmFrame {
   // stroke: 0-1 的垂直运动 - 使用更快的频率和更大的变化范围
   const stroke = (Math.sin(t / 300) + 1) / 2;
   
-  // rotation: -1 to 1 的旋转运动 - 增加幅度使旋转更明显
-  const rotation = Math.sin(t / 500) * 0.8; // 从 0.5 增加到 0.8，使旋转更明显
+  // rotation 字段在 GUI 中作为 0..1 的 Suction 强度显示，并驱动震动动画
+  const rotation = (Math.sin(t / 500) + 1) / 2;
   
   // intensity: 0-1 的强度/光晕 - 使用更快的频率
   const intensity = (Math.sin(t / 250) + 1) / 2;
@@ -43,4 +43,3 @@ export function mockRhythm(t: number): RhythmFrame {
     mode: "demo"
   };
 }
-

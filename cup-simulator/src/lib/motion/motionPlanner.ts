@@ -35,9 +35,8 @@ interface RuntimeSegmentPlan {
   offset: number;
   duration: number;
   strokeSpeed: number;
-  rotationSpeed: number;
+  suctionLevel: number;
   strokeDistanceBefore: number;
-  rotationBefore: number;
   modePrefix: 'session' | 'interval';
 }
 
@@ -51,8 +50,6 @@ interface RuntimeUnitPlan {
   iterationDuration: number;
   strokeDistanceBefore: number;
   strokeDistancePerIteration: number;
-  rotationBefore: number;
-  rotationPerIteration: number;
   segments: RuntimeSegmentPlan[];
 }
 
@@ -165,17 +162,13 @@ export class MotionPlanner {
       plan.initialStrokeDirection,
       strokeDistance
     ).stroke;
-    const rotation =
-      selectedUnit.rotationBefore +
-      iterationIndex * selectedUnit.rotationPerIteration +
-      selectedSegment.rotationBefore +
-      selectedSegment.rotationSpeed * (segmentElapsed / 1000);
+    const suctionLevel = selectedSegment.suctionLevel;
 
     return {
       frame: {
         t: clampedRelativeTime,
         stroke,
-        rotation,
+        rotation: suctionLevel,
         intensity: selectedUnit.intensity,
         suck: 0.5,
         mode: `${selectedSegment.modePrefix}_${selectedUnit.primitiveId}_iter${iterationIndex}`
@@ -226,59 +219,6 @@ export class MotionPlanner {
   }
 
   /**
-   * 在间隔期间生成关键帧，保持旋转累积和 stroke 往复运动
-   */
-  private generateIntervalKeyframes(
-    startTime: number,
-    intervalDuration: number,
-    rotationSpeed: number,
-    currentRotation: number,
-    strokeSpeed: number,
-    currentStroke: number,
-    strokeDirection: 1 | -1,
-    unitIntensity: number,
-    unitPrimitiveId: string,
-    unitIndex: number,
-    iter: number,
-    context: string
-  ): TimelineKeyframe[] {
-    const keyframes: TimelineKeyframe[] = [];
-    const keyframeInterval = 50; // 毫秒
-    const numKeyframes = Math.max(2, Math.ceil(intervalDuration / keyframeInterval));
-    
-    for (let i = 0; i <= numKeyframes; i++) {
-      const relativeTime = (i / numKeyframes) * intervalDuration;
-      const timestamp = startTime + relativeTime;
-      
-      // 旋转继续累积
-      const rotationDelta = rotationSpeed * (relativeTime / 1000); // 转换为秒
-      const rotationPosition = currentRotation + rotationDelta;
-      
-      const strokeDistance = strokeSpeed * (relativeTime / 1000);
-      const strokePosition = strokeSpeed <= 0
-        ? currentStroke
-        : this.advanceStroke(currentStroke, strokeDirection, strokeDistance).stroke;
-      
-      keyframes.push({
-        timestamp,
-        frame: {
-          t: timestamp,
-          stroke: strokePosition,  // 修改：继续往复运动，而不是0
-          rotation: rotationPosition,
-          intensity: unitIntensity,
-          suck: 0.5,
-          mode: `interval_${unitPrimitiveId}_iter${iter}_${context}`
-        },
-        strokeSpeed: strokeSpeed, // 存储间隔期间的 stroke 速度
-        unitIndex: unitIndex, // 存储当前 unit 的索引
-        primitiveId: unitPrimitiveId // 存储当前 primitive 的 ID
-      });
-    }
-    
-    return keyframes;
-  }
-
-  /**
    * 根据SessionMessage生成运动时间线
    */
   generateTimeline(session: SessionMessage, startTime: number = 0): TimelineKeyframe[] {
@@ -303,7 +243,6 @@ export class MotionPlanner {
 
     let currentTime = startTime;
     let cumulativeStrokeDistance = 0;
-    let cumulativeRotation = 0;
     let validUnitsCount = 0;
     const units: RuntimeUnitPlan[] = [];
 
@@ -352,28 +291,25 @@ export class MotionPlanner {
       const segments: RuntimeSegmentPlan[] = [];
       let iterationDuration = 0;
       let iterationStrokeDistance = 0;
-      let iterationRotationDelta = 0;
 
       for (let movementIndex = 0; movementIndex < movements.length; movementIndex++) {
         const movement = movements[movementIndex];
         const movementDuration = Math.max(0, (movement.duration || 0) * 1000);
         const strokeSpeed = (movement.distance || 0) * unitIntensity / (movement.duration || 1);
-        const rotationSpeed = 0;
+        const suctionLevel = Math.max(0, Math.min(1, Math.abs(Number(movement.rotation) || 0) * unitIntensity));
 
         if (movementDuration > 0) {
           segments.push({
             offset: iterationDuration,
             duration: movementDuration,
             strokeSpeed,
-            rotationSpeed,
+            suctionLevel,
             strokeDistanceBefore: iterationStrokeDistance,
-            rotationBefore: iterationRotationDelta,
             modePrefix: 'session'
           });
 
           iterationDuration += movementDuration;
           iterationStrokeDistance += strokeSpeed * (movementDuration / 1000);
-          iterationRotationDelta += rotationSpeed * (movementDuration / 1000);
         }
 
         if (movementIndex < movements.length - 1 && this.controlInterval > 0) {
@@ -381,15 +317,13 @@ export class MotionPlanner {
             offset: iterationDuration,
             duration: this.controlInterval,
             strokeSpeed,
-            rotationSpeed,
+            suctionLevel,
             strokeDistanceBefore: iterationStrokeDistance,
-            rotationBefore: iterationRotationDelta,
             modePrefix: 'interval'
           });
 
           iterationDuration += this.controlInterval;
           iterationStrokeDistance += strokeSpeed * (this.controlInterval / 1000);
-          iterationRotationDelta += rotationSpeed * (this.controlInterval / 1000);
         }
       }
 
@@ -410,14 +344,11 @@ export class MotionPlanner {
         iterationDuration,
         strokeDistanceBefore: cumulativeStrokeDistance,
         strokeDistancePerIteration: iterationStrokeDistance,
-        rotationBefore: cumulativeRotation,
-        rotationPerIteration: iterationRotationDelta,
         segments
       });
 
       currentTime += unitDuration;
       cumulativeStrokeDistance += iterationStrokeDistance * iteration;
-      cumulativeRotation += iterationRotationDelta * iteration;
     }
 
     if (validUnitsCount > 0 && units.length > 0) {

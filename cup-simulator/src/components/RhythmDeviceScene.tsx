@@ -7,7 +7,7 @@
 
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Group, MathUtils } from 'three';
+import { Color, Group, MathUtils } from 'three';
 import { RhythmFrame } from '@/lib/rhythm/mockGenerator';
 
 interface RhythmDeviceSceneProps {
@@ -147,8 +147,20 @@ function TechLines({ intensity }: { intensity: number }) {
 }
 
 // 发光能量环组件
-function EnergyRings({ intensity, yPosition, radius }: { intensity: number; yPosition: number; radius: number }) {
-  const ringIntensity = useMemo(() => 0.8 + intensity * 1.2, [intensity]);
+function EnergyRings({ 
+  intensity, 
+  suctionStrength, 
+  vibrationColor,
+  yPosition, 
+  radius 
+}: { 
+  intensity: number; 
+  suctionStrength: number; 
+  vibrationColor: string;
+  yPosition: number; 
+  radius: number;
+}) {
+  const ringIntensity = useMemo(() => 0.8 + intensity * 1.2 + suctionStrength * 1.6, [intensity, suctionStrength]);
   
   return (
     <group position={[0, yPosition, 0]}>
@@ -157,7 +169,7 @@ function EnergyRings({ intensity, yPosition, radius }: { intensity: number; yPos
         <torusGeometry args={[radius, 0.02, 16, 48]} />
         <meshStandardMaterial
           color="#00aaff"
-          emissive="#00ffff"
+          emissive={vibrationColor}
           emissiveIntensity={ringIntensity}
           metalness={0.9}
           roughness={0.1}
@@ -168,10 +180,67 @@ function EnergyRings({ intensity, yPosition, radius }: { intensity: number; yPos
         <torusGeometry args={[radius, 0.02, 16, 48]} />
         <meshStandardMaterial
           color="#00aaff"
-          emissive="#00ffff"
+          emissive={vibrationColor}
           emissiveIntensity={ringIntensity}
           metalness={0.9}
           roughness={0.1}
+        />
+      </mesh>
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, -0.15, 0]}>
+        <torusGeometry args={[radius + suctionStrength * 0.08, 0.012 + suctionStrength * 0.012, 16, 48]} />
+        <meshStandardMaterial
+          color={vibrationColor}
+          emissive={vibrationColor}
+          emissiveIntensity={suctionStrength * 2.4}
+          transparent
+          opacity={suctionStrength * 0.7}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+function VibrationAura({
+  suctionStrength,
+  radius,
+  color
+}: {
+  suctionStrength: number;
+  radius: number;
+  color: string;
+}) {
+  const auraRef = useRef<Group>(null);
+
+  useFrame((state) => {
+    if (!auraRef.current) {
+      return;
+    }
+
+    const phase = state.clock.elapsedTime * (4 + suctionStrength * 10);
+    const pulse = 1 + suctionStrength * 0.28 + Math.sin(phase) * suctionStrength * 0.14;
+    auraRef.current.scale.set(pulse, 1, pulse);
+    auraRef.current.rotation.y = state.clock.elapsedTime * suctionStrength * 1.8;
+  });
+
+  return (
+    <group ref={auraRef} visible={suctionStrength > 0.02}>
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0.16, 0]}>
+        <torusGeometry args={[radius + 0.16 + suctionStrength * 0.12, 0.01 + suctionStrength * 0.015, 16, 72]} />
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={suctionStrength * 0.45}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, -0.16, 0]}>
+        <torusGeometry args={[radius + 0.24 + suctionStrength * 0.16, 0.008 + suctionStrength * 0.012, 16, 72]} />
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={suctionStrength * 0.3}
+          depthWrite={false}
         />
       </mesh>
     </group>
@@ -181,12 +250,12 @@ function EnergyRings({ intensity, yPosition, radius }: { intensity: number; yPos
 // 外部套筒组件
 function OuterSleeve({ 
   stroke, 
-  rotation, 
+  suction, 
   suck, 
   intensity 
 }: { 
   stroke: number; 
-  rotation: number; 
+  suction: number; 
   suck: number;
   intensity: number;
 }) {
@@ -196,36 +265,48 @@ function OuterSleeve({
   const sleeveHeight = 0.6; // 套筒高度
   const outerRadiusMin = 0.6; // 完全收缩时的外径
   const outerRadiusMax = 0.9; // 完全放松时的外径
+  const suctionStrength = Math.max(0, Math.min(1, suction));
+  const vibrationColor = useMemo(() => {
+    const color = new Color('#38bdf8');
+    color.lerp(new Color('#f97316'), suctionStrength);
+    return `#${color.getHexString()}`;
+  }, [suctionStrength]);
   
   // 根据 suck 值计算外径
-  const outerRadius = outerRadiusMin + (1 - suck) * (outerRadiusMax - outerRadiusMin);
+  const outerRadius = outerRadiusMin + (1 - suck) * (outerRadiusMax - outerRadiusMin) + suctionStrength * 0.04;
   
   // 透明度根据 suck 值调整（收缩时更透明）
-  const opacity = useMemo(() => 0.4 + (1 - suck) * 0.2, [suck]);
+  const opacity = useMemo(() => 0.4 + (1 - suck) * 0.2 + suctionStrength * 0.12, [suck, suctionStrength]);
   
   // 根据 intensity 调整发光
-  const emissiveIntensity = useMemo(() => intensity * 0.6, [intensity]);
+  const emissiveIntensity = useMemo(() => intensity * 0.6 + suctionStrength * 1.1, [intensity, suctionStrength]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (sleeveGroupRef.current) {
       // 上下移动：根据 stroke 值
       const minY = -1.2;
       const maxY = 1.2;
       const targetY = minY + stroke * (maxY - minY);
+      const vibrationPhase = state.clock.elapsedTime * (34 + suctionStrength * 96);
+      const vibrationOffset = suctionStrength * 0.16;
+      const pulseScale = 1 + Math.sin(vibrationPhase * 0.52) * suctionStrength * 0.12;
       sleeveGroupRef.current.position.y = MathUtils.damp(
         sleeveGroupRef.current.position.y,
         targetY,
         18,
         delta
       );
+      sleeveGroupRef.current.position.x = Math.sin(vibrationPhase) * vibrationOffset;
+      sleeveGroupRef.current.position.z = Math.cos(vibrationPhase * 1.17) * vibrationOffset * 0.7;
       
-      // 旋转：根据 rotation 值
-      sleeveGroupRef.current.rotation.y = rotation * Math.PI * 2;
+      sleeveGroupRef.current.rotation.x = Math.sin(vibrationPhase * 0.73) * suctionStrength * 0.08;
+      sleeveGroupRef.current.rotation.z = Math.cos(vibrationPhase * 0.91) * suctionStrength * 0.08;
+      sleeveGroupRef.current.scale.set(pulseScale, 1, pulseScale);
     }
   });
 
-  // 创建旋转标记（用于显示旋转方向）
-  const rotationMarkers = useMemo(() => {
+  // 创建强度标记
+  const suctionMarkers = useMemo(() => {
     return Array.from({ length: 4 }, (_, i) => {
       const angle = (i / 4) * Math.PI * 2;
       return {
@@ -248,7 +329,7 @@ function OuterSleeve({
           transparent
           opacity={opacity}
           depthWrite={false}
-          emissive="#808080"
+          emissive={vibrationColor}
           emissiveIntensity={emissiveIntensity}
           clearcoat={1.0}
           clearcoatRoughness={0.1}
@@ -257,8 +338,8 @@ function OuterSleeve({
         />
       </mesh>
       
-      {/* 旋转标记 - 在套筒表面添加发光标记，使旋转更明显 */}
-      {rotationMarkers.map((marker, index) => (
+      {/* 强度标记 - 在套筒表面添加发光标记，使强度变化更明显 */}
+      {suctionMarkers.map((marker, index) => (
         <mesh
           key={index}
           position={[marker.x, 0, marker.z]}
@@ -266,9 +347,9 @@ function OuterSleeve({
         >
           <boxGeometry args={[0.08, sleeveHeight, 0.02]} />
           <meshStandardMaterial
-            color="#00ffff"
-            emissive="#00aaff"
-            emissiveIntensity={0.8 + intensity * 0.5}
+            color={vibrationColor}
+            emissive={vibrationColor}
+            emissiveIntensity={0.8 + intensity * 0.5 + suctionStrength * 2.0}
             metalness={0.9}
             roughness={0.1}
           />
@@ -276,7 +357,18 @@ function OuterSleeve({
       ))}
       
       {/* 能量环 */}
-      <EnergyRings intensity={intensity} yPosition={sleeveHeight / 2 - 0.15} radius={outerRadius} />
+      <EnergyRings 
+        intensity={intensity} 
+        suctionStrength={suctionStrength} 
+        vibrationColor={vibrationColor}
+        yPosition={sleeveHeight / 2 - 0.15} 
+        radius={outerRadius} 
+      />
+      <VibrationAura
+        suctionStrength={suctionStrength}
+        radius={outerRadius}
+        color={vibrationColor}
+      />
     </group>
   );
 }
@@ -284,12 +376,12 @@ function OuterSleeve({
 export default function RhythmDeviceScene({ frame }: RhythmDeviceSceneProps) {
   // 默认值
   const defaultStroke = 0.5;
-  const defaultRotation = 0;
+  const defaultSuction = 0;
   const defaultIntensity = 0.3;
   const defaultSuck = 0.5;
 
   const stroke = frame?.stroke ?? defaultStroke;
-  const rotation = frame?.rotation ?? defaultRotation;
+  const suction = frame?.rotation ?? defaultSuction;
   const intensity = frame?.intensity ?? defaultIntensity;
   const suck = frame?.suck ?? defaultSuck;
 
@@ -298,10 +390,10 @@ export default function RhythmDeviceScene({ frame }: RhythmDeviceSceneProps) {
       {/* 内部柱体 - 科技蓝金属材质 */}
       <InnerCore stroke={stroke} intensity={intensity} />
       
-      {/* 外部套筒 - 半透明金属，可上下移动、旋转、收缩 */}
+      {/* 外部套筒 - 半透明金属，可上下移动、抖动、收缩 */}
       <OuterSleeve 
         stroke={stroke}
-        rotation={rotation}
+        suction={suction}
         suck={suck}
         intensity={intensity}
       />

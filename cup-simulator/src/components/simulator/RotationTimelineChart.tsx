@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * Rotation 时间轴图表组件
- * 将 rotation 值从 -1 到 1 映射到 0 到 1 显示
+ * Suction 时间轴图表组件
+ * 协议字段仍为 rotation, GUI 中按 0..1 强度显示.
  */
 
 import TimelineChart from './TimelineChart';
@@ -13,20 +13,19 @@ interface RotationTimelineChartProps {
 }
 
 export default function RotationTimelineChart({ data, active = false }: RotationTimelineChartProps) {
-  // 将 rotation 值从 -1 到 1 映射到 0 到 1
-  const normalizedData = data.map(item => ({
+  const strengthData = data.map(item => ({
     timestamp: item.timestamp,
-    value: (item.value + 1) / 2 // 从 [-1, 1] 映射到 [0, 1]
+    value: Math.max(0, Math.min(1, item.value))
   }));
 
   return (
     <div className="w-full h-full">
       <TimelineChart
-        data={normalizedData}
-        label="Rotation"
+        data={strengthData}
+        label="Suction"
         minValue={0}
         maxValue={1}
-        color="#d4a574"
+        color="#34d399"
         timeWindow={10000}
         active={active}
       />

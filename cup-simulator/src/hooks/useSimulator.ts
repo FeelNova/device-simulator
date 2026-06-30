@@ -193,19 +193,10 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
                 adjustedStrokeSpeed = keyframeResult.strokeSpeed * intensityRatio;
               }
               
-              // 调整 rotation 速度（通过调整 rotation 值的变化率）
-              // 由于 rotation 是累积值，需要根据时间差和速度来计算
-              if (previousFrameRef.current !== null && previousTimestampRef.current !== null) {
-                const timeDelta = (now - previousTimestampRef.current) / 1000; // 秒
-                if (timeDelta > 0) {
-                  const originalRotationDelta = frame.rotation - previousFrameRef.current.rotation;
-                  const adjustedRotationDelta = originalRotationDelta * intensityRatio;
-                  adjustedFrame = {
-                    ...frame,
-                    rotation: previousFrameRef.current.rotation + adjustedRotationDelta
-                  };
-                }
-              }
+              adjustedFrame = {
+                ...frame,
+                rotation: Math.max(0, Math.min(1, frame.rotation * intensityRatio))
+              };
               
               // 调整 stroke 位置的变化速度
               // stroke 是往复运动，速度影响往复频率
@@ -261,7 +252,7 @@ export function useSimulator(options: UseSimulatorOptions = {}) {
           return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
         });
         setRotationHistory(prev => {
-          const newHistory = [...prev, { timestamp: now, value: frame.rotation }];
+          const newHistory = [...prev, { timestamp: now, value: adjustedFrame.rotation }];
           return newHistory.length > 1000 ? newHistory.slice(-1000) : newHistory;
         });
 

@@ -13,10 +13,9 @@ export function normalizeFrame(data: any): RhythmFrame {
   return {
     t: typeof data.t === 'number' ? data.t : Date.now(),
     stroke: Math.max(0, Math.min(1, Number(data.stroke) || 0)),
-    rotation: Math.max(-1, Math.min(1, Number(data.rotation) || 0)),
+    rotation: Math.max(0, Math.min(1, Number(data.rotation) || 0)),
     intensity: Math.max(0, Math.min(1, Number(data.intensity) || 0)),
     suck: Math.max(0, Math.min(1, Number(data.suck) ?? 0.5)), // 默认0.5（2档）
     mode: typeof data.mode === 'string' ? data.mode : 'unknown'
   };
 }
-

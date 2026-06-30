@@ -257,7 +257,6 @@ export default function SimulatorPage() {
     strokeHistory,
     rotationHistory,
     strokeVelocity,
-    rotationVelocity,
     currentStrokeSpeed,
     motionLogs,
     controlInterval,
@@ -1542,9 +1541,9 @@ export default function SimulatorPage() {
                 </div>
               </div>
               
-              {/* Rotation 时间轴图表 */}
+              {/* Suction 时间轴图表 */}
               <div className="h-[120px] md:h-[140px] flex flex-col bg-black/40 backdrop-blur-sm rounded-lg border border-white/10 p-1.5">
-                <h3 className="text-xs text-white/80 mb-0.5 flex-shrink-0 font-medium">Rotation Timeline</h3>
+                <h3 className="text-xs text-white/80 mb-0.5 flex-shrink-0 font-medium">Suction Timeline</h3>
                 <div className="flex-1 min-h-0 overflow-hidden">
                   <RotationTimelineChart data={rotationHistory} active={isVisualizationActive} />
                 </div>
@@ -1553,23 +1552,17 @@ export default function SimulatorPage() {
             
             {/* 实时参数显示 - 在画布下方，与左侧控制面板对齐，始终显示 */}
             <div className="mt-4 pt-4 border-t border-white/10">
-              <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-white/50">stroke:</span>
+                  <span className="text-white/50">Stroke:</span>
                   <span className="text-white ml-2">
                     {Math.abs(currentStrokeSpeed || strokeVelocity).toFixed(2)}/s
                   </span>
                 </div>
                 <div>
-                  <span className="text-white/50">Rotation:</span>
+                  <span className="text-white/50">Suction:</span>
                   <span className="text-white ml-2">
-                    {rotationVelocity.toFixed(2)}/s
-                  </span>
-                </div>
-                <div>
-                  <span className="text-white/50">Suck:</span>
-                  <span className="text-white ml-2">
-                    {currentFrame ? currentFrame.suck.toFixed(1) : '0.5'}
+                    {currentFrame ? Math.max(0, Math.min(1, currentFrame.rotation)).toFixed(2) : '0.00'}
                   </span>
                 </div>
               </div>
