@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
+import BrokerPresets from '@/components/BrokerPresets';
 import { useSimulator } from '@/hooks/useSimulator';
 import { useMQTT, MQTTLog } from '@/hooks/useMQTT';
 import * as protobuf from 'protobufjs';
@@ -892,6 +893,7 @@ export default function SimulatorPage() {
       <div className="max-w-[1920px] mx-auto px-4 md:px-[120px]">
         {/* 标题 */}
         <div className="mb-8 md:mb-12">
+          <a href="/ota" className="inline-block mb-4 rounded-lg border border-white/20 px-4 py-2 text-sm text-white/80">ESP32 OTA Test →</a>
           <h1 className="text-3xl md:text-4xl lg:text-[52px] leading-normal text-white font-normal mb-4 tracking-[-1.04px]">
             Device Rhythm Simulator
           </h1>
@@ -909,6 +911,7 @@ export default function SimulatorPage() {
               {/* Broker URL */}
               <div>
                 <label className="block text-sm text-white/70 mb-2">Broker URL</label>
+                <BrokerPresets value={brokerUrl} disabled={isMQTTConnected} onSelect={setBrokerUrl} />
                 <input
                   type="text"
                   value={brokerUrl}
