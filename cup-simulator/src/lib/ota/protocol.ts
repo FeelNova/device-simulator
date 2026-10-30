@@ -24,10 +24,11 @@ export function decodeHttpCommand(data: Uint8Array) {
     firmwareUrl: string; firmwareVersion: string; firmwareSize: number; targetDevice: number;
   };
 }
+export const releaseVersionPattern = /^v?(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})(?:\+[0-9]{1,20})?$/;
 export const mockPrefix = 'PULSAR_OTA_MOCK\n';
 export function createMock(hardware: string, version: string): Uint8Array {
   if (!/^sim-[A-Za-z0-9_.-]+$/.test(hardware)) throw new Error('Mock hardware must start with sim-.');
-  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Use a version such as 1.1.0.');
+  if (!releaseVersionPattern.test(version)) throw new Error('Use a version such as 1.1.0 or 1.1.0+20261030120000.');
   const manifest = new TextEncoder().encode(mockPrefix + JSON.stringify({
     kind: 'pulsar-esp32-ota-mock-v1', device_type: hardware, version,
     warning: 'SIMULATOR ONLY. NOT EXECUTABLE ESP32 FIRMWARE.', padding: '.'.repeat(1024),

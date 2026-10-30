@@ -14,3 +14,5 @@ MQTT OTA 支持型号由服务端 FIRMWARE_OTA_DEVICE_TYPES 配置, 默认只包
 下载桥接保留 OTA_SIMULATOR_ORIGIN 和 OTA_DOWNLOAD_ORIGINS 环境配置, 仅允许指定来源的签名下载路径. MQTT 密码不存入 localStorage.
 
 Broker 输入框提供 Preprod 和 Test site 两个快捷按钮, 点击只更新地址, 不自动连接. 仍可手动输入自定义地址. 连接或升级期间禁用切换, 需先断开再换环境. 两个环境的设备注册及固件库独立, 切换后需重新注册.
+
+版本允许 x.y.z 或 x.y.z+数字时间戳 (可带 v 前缀), 例如 1.3.0+20261030120000. server 先比较主/次/补丁版本, 再按数字比较时间戳. 若管理端目标仅为 x.y.z, 设备注册的相同主版本加时间戳也可确认成功; 目标带时间戳时必须匹配指定构建.

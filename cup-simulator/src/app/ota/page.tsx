@@ -4,7 +4,7 @@ import Link from 'next/link';
 import BrokerPresets from '@/components/BrokerPresets';
 import mqtt, { MqttClient } from 'mqtt';
 import { Buffer } from 'buffer';
-import { createMock, validateMock, encode, decodeCommand, decodeHttpCommand } from '@/lib/ota/protocol';
+import { createMock, validateMock, releaseVersionPattern, encode, decodeCommand, decodeHttpCommand } from '@/lib/ota/protocol';
 
 type Identity = { token: string; hardware: string; version: string };
 const input = 'w-full rounded-lg border border-white/20 bg-white/5 p-3 text-white disabled:opacity-50';
@@ -92,7 +92,7 @@ export default function OtaSimulator() {
   const connect = () => {
     const value = identityRef.current;
     if (!/^sim-[A-Za-z0-9_.-]+$/.test(value.token) || !/^sim-[A-Za-z0-9_.-]+$/.test(value.hardware)) { log('Use sim- prefixes for both token and hardware. Never reuse a real device identity.'); return; }
-    if (!/^\d+\.\d+\.\d+$/.test(value.version) || !/^wss?:\/\//.test(broker)) { log('Enter an MQTT WebSocket URL and a version such as 1.0.0.'); return; }
+    if (!releaseVersionPattern.test(value.version) || !/^wss?:\/\//.test(broker)) { log('Enter an MQTT WebSocket URL and a version such as 1.0.0 or 1.0.0+20261030120000.'); return; }
     saveIdentity(value); setConnecting(true); setStage('Connecting');
     const client = mqtt.connect(broker, { username: username || undefined, password: password || undefined,
       clientId: `ota-${crypto.randomUUID()}`, clean: true, reconnectPeriod: 0, connectTimeout: 15000,
